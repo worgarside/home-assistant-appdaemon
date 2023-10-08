@@ -5,11 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, ClassVar
 
-from wg_utilities.clients import GoogleFitClient
-from wg_utilities.loggers import add_warehouse_handler
-
 # pylint: disable=no-name-in-module
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import]
+from wg_utilities.clients import GoogleFitClient
+from wg_utilities.loggers import add_warehouse_handler
 
 
 class FitnessVariablesGetter(Hass):  # type: ignore[misc]
@@ -19,7 +18,7 @@ class FitnessVariablesGetter(Hass):  # type: ignore[misc]
 
     VARIABLE_DATA_SOURCE_MAPPING: ClassVar[dict[str, str]] = {
         f"var.google_fit_{var_suffix}": ":".join(
-            ["derived", namespace, "com.google.android.gms", operation]
+            ["derived", namespace, "com.google.android.gms", operation],
         )
         for var_suffix, namespace, operation in [
             ("active_minutes", "com.google.active_minutes", "merge_active_minutes"),
@@ -36,7 +35,6 @@ class FitnessVariablesGetter(Hass):  # type: ignore[misc]
 
     def initialize(self) -> None:
         """Initialize the app."""
-
         add_warehouse_handler(self.err)
 
         self.client = GoogleFitClient(

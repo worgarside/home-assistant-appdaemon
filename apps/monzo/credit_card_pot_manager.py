@@ -4,21 +4,21 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
+# pylint: disable=no-name-in-module
+from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import]
 from wg_utilities.clients import MonzoClient
 from wg_utilities.clients.monzo import Pot
 from wg_utilities.loggers import add_warehouse_handler
 
-# pylint: disable=no-name-in-module
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import]
-
 
 class CreditCardPotManager(Hass):  # type: ignore[misc]
+    """Keep my credit card pot topped up with nightly notifications."""
+
     client: MonzoClient
     credit_card_pot: Pot
 
     def initialize(self) -> None:
         """Initialize the app."""
-
         add_warehouse_handler(self.err)
 
         self.client = MonzoClient(
@@ -30,7 +30,7 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
 
         if not (credit_card_pot := self.client.get_pot_by_name("credit cards")):
             self.error("Could not find credit card pot")
-            raise RuntimeError("Could not find credit card pot")
+            raise RuntimeError("Could not find credit card pot")  # noqa: TRY003
 
         self.credit_card_pot = credit_card_pot
 
@@ -45,7 +45,6 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
         __: dict[str, str],
     ) -> None:
         """Top up the credit card pot when a notification action is received."""
-
         action_phrase, top_up_amount_str = data.get("action", "0:0").split(":")
 
         if action_phrase != "TOP_UP_CREDIT_CARD_POT":
@@ -65,7 +64,7 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
                     self.name,
                     str(top_up_amount),
                     data.get("metadata", {}).get("context", {}).get("id", ""),
-                )
+                ),
             ),
         )
 

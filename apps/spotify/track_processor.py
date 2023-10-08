@@ -10,11 +10,10 @@ from re import compile as compile_regex
 from re import sub
 from typing import TYPE_CHECKING, Any, Literal, Self
 
-from wg_utilities.clients import SpotifyClient
-from wg_utilities.loggers import add_warehouse_handler
-
 # pylint: disable=no-name-in-module
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import]
+from wg_utilities.clients import SpotifyClient
+from wg_utilities.loggers import add_warehouse_handler
 
 if TYPE_CHECKING:
     from wg_utilities.clients.spotify import Playlist, Track
@@ -22,12 +21,14 @@ if TYPE_CHECKING:
 
 DECADE_PATTERN = compile_regex(r"^\d{3}0s$")
 _MONTH_LIST = "|".join(
-    [datetime.strptime(str(i + 1), "%m").strftime("%B") for i in range(12)]
+    [datetime.strptime(str(i + 1), "%m").strftime("%B") for i in range(12)],
 )
 MONTHLY_PATTERN = compile_regex(rf"^({_MONTH_LIST}) '[0-9]{{2}}$")
 
 
 class ActionablePlaylist(StrEnum):
+    """A playlist to be included in actionable notifications."""
+
     action_phrase: str
     slug: str
 
@@ -35,6 +36,7 @@ class ActionablePlaylist(StrEnum):
     JAMBOX_JAMS = "JAMBOX Jams"
 
     def __new__(cls, *values: str) -> Self:
+        """Create a new member of the enumeration."""
         value = str(*values)
 
         member = str.__new__(cls, value)
@@ -49,12 +51,13 @@ class ActionablePlaylist(StrEnum):
 
 
 class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
+    """App to add recently liked tracks to dynamic playlists."""
+
     playlists: dict[str, Playlist]
     spotify: SpotifyClient
 
     def initialize(self) -> None:
         """Initialise the app."""
-
         add_warehouse_handler(self.err)
 
         self.spotify = SpotifyClient(
@@ -70,20 +73,21 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
 
         self.playlists = {
             ActionablePlaylist.CHILL_ELECTRONICA: self.spotify.get_playlist_by_id(
-                "2lMx8FU0SeQ7eA5kcMlNpX"
+                "2lMx8FU0SeQ7eA5kcMlNpX",
             ),
             ActionablePlaylist.JAMBOX_JAMS: self.spotify.get_playlist_by_id(
-                "4Vv023MaZsc8NTWZ4WJvIL"
+                "4Vv023MaZsc8NTWZ4WJvIL",
             ),
             "pixel_now_playing": self.spotify.get_playlist_by_id(
-                "7vK46qf4I352doLdlSG9G0"
+                "7vK46qf4I352doLdlSG9G0",
             ),
         }
 
         self.run_every(self.process_liked_tracks, "now", 15 * 60)
         self.listen_state(self.process_now_playing, "var.tasker_pixel_now_playing")
         self.listen_state(
-            self.update_tempo_variable, "sensor.spotify_will_garside_media_title"
+            self.update_tempo_variable,
+            "sensor.spotify_will_garside_media_title",
         )
         self.listen_event(self.add_track_to_playlist, "mobile_app_notification_action")
 
@@ -93,7 +97,7 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
         data: dict[str, str],
         __: dict[str, str],
     ) -> None:
-        """Add a given track to a playlist, triggered from mobile notification
+        """Add a given track to a playlist, triggered from mobile notification.
 
         Args:
             _ (str): the event name
@@ -103,7 +107,6 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
         Raises:
             Exception: if the desired track can't be found in the recently liked
         """
-
         action_phrase, track_id = data.get("action", "0:0").split(":")
 
         if not action_phrase.startswith("ADD_TRACK_TO_"):
@@ -113,7 +116,7 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
             if actionable.action_phrase == action_phrase:
                 break
         else:
-            raise ValueError(f"Unknown action phrase {action_phrase}")
+            raise ValueError(f"Unknown action phrase {action_phrase}")  # noqa: TRY003
 
         track = self.spotify.get_track_by_id(track_id)
 
@@ -134,9 +137,8 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
         Args:
             _: any kwargs
         """
-
         recently_liked = self.spotify.current_user.get_recently_liked_tracks(
-            day_limit=7
+            day_limit=7,
         )
 
         self.log("Found %s recently liked tracks", len(recently_liked))
@@ -149,20 +151,21 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
             decade_playlist_name = str(track.release_date.year)[:3] + "0s"
 
             recently_liked_by_playlist.setdefault(monthly_playlist_name, []).append(
-                track
+                track,
             )
             recently_liked_by_playlist.setdefault(decade_playlist_name, []).append(
-                track
+                track,
             )
 
         self.log(
-            "Playlists to update: %s", dumps(recently_liked_by_playlist, default=str)
+            "Playlists to update: %s",
+            dumps(recently_liked_by_playlist, default=str),
         )
 
         for target_playlist_name, tracks_to_add in recently_liked_by_playlist.items():
             if not (
                 playlist := self.spotify.current_user.get_playlists_by_name(
-                    target_playlist_name
+                    target_playlist_name,
                 )
             ):
                 self.log("Creating playlist %s", target_playlist_name)
@@ -217,7 +220,7 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
                                     "title": actionable,
                                 }
                                 for actionable in ActionablePlaylist
-                            ]
+                            ],
                         },
                     )
 
@@ -226,7 +229,8 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
                     notified_tracks.add(track)
 
             self.persistent_notification(
-                title="Spotify Playlists Updated", message=message
+                title="Spotify Playlists Updated",
+                message=message,
             )
 
     def process_now_playing(
@@ -235,7 +239,7 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
         attribute: Literal["state"],
         old: str,
         new: str,
-        pin_app: bool,
+        pin_app: bool,  # noqa: FBT001
         **kwargs: dict[str, Any],
     ) -> None:
         """Process an update from the Pixel Now Playing Tasker task.
@@ -281,10 +285,12 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
                 )
             else:
                 self.log(
-                    "Adding track to Pixel Now Playing playlist: %s", matched_track
+                    "Adding track to Pixel Now Playing playlist: %s",
+                    matched_track,
                 )
                 self.spotify.add_tracks_to_playlist(
-                    [matched_track], self.playlists["pixel_now_playing"]
+                    [matched_track],
+                    self.playlists["pixel_now_playing"],
                 )
         else:
             self.error("No matching track found for search term '%s'", search_term)
@@ -295,7 +301,7 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
         attribute: Literal["state"],
         old: str,
         new: str,
-        pin_app: bool,
+        pin_app: bool,  # noqa: FBT001
         **kwargs: dict[str, Any],
     ) -> None:
         """Update the tempo variable for a given user.
@@ -308,7 +314,6 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
             pin_app (bool): whether the app should be pinned
             kwargs (dict[str, Any]): any other kwargs
         """
-
         _ = entity, old, pin_app, kwargs
 
         if attribute != "state" or not new:
@@ -331,7 +336,8 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
             )
         else:
             track_id = self.get_state(
-                "media_player.spotify_will_garside", attribute="media_content_id"
+                "media_player.spotify_will_garside",
+                attribute="media_content_id",
             ).replace("spotify:track:", "")
 
             track = self.spotify.get_track_by_id(track_id)

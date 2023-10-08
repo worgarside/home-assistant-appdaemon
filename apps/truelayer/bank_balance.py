@@ -7,12 +7,11 @@ from json import dumps
 from pathlib import Path
 from typing import Any, Literal, overload
 
+# pylint: disable=no-name-in-module
+from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import]
 from wg_utilities.clients import TrueLayerClient
 from wg_utilities.clients.truelayer import Account, Bank, Card
 from wg_utilities.loggers import add_warehouse_handler
-
-# pylint: disable=no-name-in-module
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import]
 
 
 class EntityType(StrEnum):
@@ -23,13 +22,14 @@ class EntityType(StrEnum):
 
 
 class BankBalanceGetter(Hass):  # type: ignore[misc]
+    """Get bank account/card balances from TrueLayer."""
+
     bank: Bank
     client: TrueLayerClient
     entities: dict[EntityType, dict[str, Account] | dict[str, Card]]
 
     def initialize(self) -> None:
         """Initialize the app."""
-
         add_warehouse_handler(self.err)
 
         self.bank = Bank[self.args["bank_ref"].upper().replace(" ", "_")]
@@ -61,13 +61,13 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         )
 
     def _callback_factory(
-        self, entity_key: EntityType
+        self,
+        entity_key: EntityType,
     ) -> Callable[[dict[str, Any]], None]:
         """Return a callback to update the entity balances."""
 
         def update_entity_balances(_: dict[str, Any]) -> None:
             """Loop through the account/card IDs and retrieve their balances."""
-
             for entity_ref, entity in self.entities[entity_key].items():
                 variable_id = f"var.truelayer_balance_{self.bank.lower()}"
 
@@ -143,14 +143,15 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         return self.entities[entity_type]
 
     def error(self, msg: str, *args: Any, **kwargs: Any) -> None:
+        """Override the error method to prepend the bank name."""
         super().error(f"{self.bank} | {msg}", *args, **kwargs)
 
     def log(self, msg: str, *args: Any, **kwargs: Any) -> None:
+        """Override the log method to prepend the bank name."""
         super().log(f"{self.bank} | {msg}", *args, **kwargs)
 
     def refresh_access_token(self, _: dict[str, Any]) -> None:
         """Refresh the access token."""
-
         self.log("Refreshing access token", self.bank)
 
         self.client.refresh_access_token()
