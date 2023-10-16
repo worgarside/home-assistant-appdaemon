@@ -1,0 +1,20 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"name": "SSH FS - /config/appdaemon",
+			"uri": "ssh://hasspi-appdaemon/config/appdaemon"
+		},
+		{
+			"name": "scratchpads",
+			"uri": "/Users/worgarside/Library/Application Support/Code/User/globalStorage/buenon.scratchpads/scratchpads"
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"*.yaml": "home-assistant"
+		}
+	}
+}
