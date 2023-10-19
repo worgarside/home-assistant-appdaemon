@@ -29,15 +29,15 @@ jobs:
     uses: worgarside/github-config-files/.github/workflows/__ci.yml@main
     with:
       # Context Variables
-      build-branch: '${{ github.ref }}'
-      event-name: '${{ github.event_name }}'
+      build-branch: ${{ github.ref }}
+      event-name: ${{ github.event_name }}
       python-version: '3.11'
       workflow-dispatch-env: ''
       # Templated Variables
-      build-type: 'python'
+      build-type: python
       node-build-directory: ''
       path-to-__version__-file: ''
-      pr-merged: '${{ github.event.pull_request.merged }}'
+      pr-merged: ${{ github.event.pull_request.merged }}
       unit-test: ''
       update-pyproject-toml: 'true'
       update-json-file-path: ''
