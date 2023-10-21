@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 # pylint: disable=no-name-in-module
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import]
+from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from wg_utilities.clients import GoogleFitClient
 from wg_utilities.loggers import add_warehouse_handler
 
