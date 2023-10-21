@@ -1,5 +1,10 @@
 ---
 repos:
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.6.26
+    hooks:
+      - id: actionlint
+
   - repo: https://github.com/worgarside/pre-commit-hooks-dependency-sync
     rev: 1.0.1
     hooks:
