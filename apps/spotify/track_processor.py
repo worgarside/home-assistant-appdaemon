@@ -11,7 +11,7 @@ from re import sub
 from typing import TYPE_CHECKING, Any, Literal, Self
 
 # pylint: disable=no-name-in-module
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import]
+from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from wg_utilities.clients import SpotifyClient
 from wg_utilities.loggers import add_warehouse_handler
 
