@@ -14,8 +14,9 @@ jobs:
     name: 'CI: Validation'
     uses: worgarside/github-config-files/.github/workflows/__ci_validation.yml@main
     with:
-      build-branch: '${{ github.ref }}'
-      build-type: 'python'
+      build-branch: ${{ github.ref }}
+      build-type: ''
+      node-build-directory: ''
       python-version: '3.11'
       unit-test: ''
     secrets: inherit
