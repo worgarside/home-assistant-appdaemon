@@ -133,7 +133,6 @@ repos:
         args:
           - --skip
           - '*.svg,*.json,*.lock'
-          - --ignore-words=.codespellignore
 
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
