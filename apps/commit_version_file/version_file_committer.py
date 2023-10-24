@@ -14,7 +14,6 @@ REPO_NAME = "worgarside/home-assistant"
 class VersionFileCommitter(Hass):  # type: ignore[misc]
     """AppDaemon app to commit the version file to GitHub."""
 
-    TOKEN_FILE_PATH = Path("/config/.github_token")
     VERSION_FILE_PATH = Path("/config/.HA_VERSION")
 
     def initialize(self) -> None:
@@ -29,9 +28,8 @@ class VersionFileCommitter(Hass):  # type: ignore[misc]
     ) -> None:
         """Commit the version file to GitHub on startup."""
         local_version = self.VERSION_FILE_PATH.read_text(encoding="utf-8").strip()
-        github_token = self.TOKEN_FILE_PATH.read_text(encoding="utf-8").strip()
 
-        github = Github(auth=Auth.Token(github_token))
+        github = Github(auth=Auth.Token(self.args["github_token"]))
         repo = github.get_repo(REPO_NAME)
 
         remote_file = repo.get_contents(".HA_VERSION")
