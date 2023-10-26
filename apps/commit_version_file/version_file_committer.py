@@ -23,6 +23,9 @@ class VersionFileCommitter(Hass):  # type: ignore[misc]
 
         self.listen_event(self.commit_version_file, "homeassistant_start")
 
+        # Run on app init to cover system reboot
+        self.commit_version_file("homeassistant_start", {}, {})
+
     def commit_version_file(
         self,
         _: Literal["homeassistant_start"],
