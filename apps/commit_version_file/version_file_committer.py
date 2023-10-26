@@ -80,7 +80,7 @@ class VersionFileCommitter(Hass):  # type: ignore[misc]
                 draft=False,
             )
 
-            pr.set_labels("non-functional")
+            pr.set_labels("non-functional", "tools")
 
             self.log(pr.html_url)
 
