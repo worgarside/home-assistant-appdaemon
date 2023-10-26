@@ -82,6 +82,8 @@ class VersionFileCommitter(Hass):  # type: ignore[misc]
 
             pr.set_labels("non-functional")
 
+            self.log(pr.html_url)
+
             self.persistent_notification(
                 title="Home Assistant Version Bump",
                 message=f"A [pull request]({pr.html_url}) has been created to bump the current"
