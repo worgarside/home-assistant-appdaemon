@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
-# pylint: disable=no-name-in-module
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from wg_utilities.clients import MonzoClient
 from wg_utilities.clients.monzo import Pot
