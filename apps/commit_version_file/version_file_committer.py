@@ -53,7 +53,7 @@ class VersionFileCommitter(Hass):  # type: ignore[misc]
             branch_name = f"chore/home-assistant-{local_version}"
 
             if any(branch.name == branch_name for branch in repo.get_branches()):
-                self.log("Branch %s already exists", branch_name)
+                self.log("Branch `%s` already exists", branch_name)
                 return
 
             ref = repo.get_git_ref("heads/main")
@@ -79,6 +79,8 @@ class VersionFileCommitter(Hass):  # type: ignore[misc]
                 base="main",
                 draft=False,
             )
+
+            pr.set_labels("non-functional")
 
             self.persistent_notification(
                 title="Home Assistant Version Bump",
