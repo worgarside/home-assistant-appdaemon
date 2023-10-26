@@ -8,6 +8,12 @@ google_fit_variable_getter:
   client_id: !secret google_fit_client_id
   client_secret: !secret google_fit_client_secret
 
+# Log Processor
+
+log_processor:
+  module: log_processor
+  class: LogProcessor
+
 # Monzo Credit Card Pot Manager
 
 monzo_credit_card_pot_manager:
