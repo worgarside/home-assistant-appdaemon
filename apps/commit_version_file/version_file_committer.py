@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from github import Auth, Github
+from wg_utilities.loggers import add_warehouse_handler
 
 REPO_NAME = "worgarside/home-assistant"
 
@@ -18,6 +19,8 @@ class VersionFileCommitter(Hass):  # type: ignore[misc]
 
     def initialize(self) -> None:
         """Initialize the app."""
+        add_warehouse_handler(self.err)
+
         self.listen_event(self.commit_version_file, "homeassistant_start")
 
     def commit_version_file(
