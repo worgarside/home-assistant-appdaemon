@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from github import Auth, Github
 from wg_utilities.loggers import add_warehouse_handler
 
-REPO_NAME = "worgarside/home-assistant"
+REPO_NAME: Final[str] = "worgarside/home-assistant"
 
 
 class VersionFileCommitter(Hass):  # type: ignore[misc]
     """AppDaemon app to commit the version file to GitHub."""
 
-    VERSION_FILE_PATH = Path("/config/.HA_VERSION")
+    VERSION_FILE_PATH: Final[Path] = Path("/config/.HA_VERSION")
 
     def initialize(self) -> None:
         """Initialize the app."""
