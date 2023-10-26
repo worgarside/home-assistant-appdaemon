@@ -35,6 +35,8 @@ class VersionFileCommitter(Hass):  # type: ignore[misc]
         """Commit the version file to GitHub on startup."""
         local_version = self.VERSION_FILE_PATH.read_text(encoding="utf-8").strip()
 
+        self.log("Local version: %s", local_version)
+
         github = Github(auth=Auth.Token(self.args["github_token"]))
         repo = github.get_repo(REPO_NAME)
 
@@ -45,31 +47,41 @@ class VersionFileCommitter(Hass):  # type: ignore[misc]
 
         remote_version = remote_file.decoded_content.decode("utf-8").strip()
 
+        self.log("Remote version: %s", remote_version)
+
         if local_version != remote_version:
             branch_name = f"chore/home-assistant-{local_version}"
 
-            if not any(branch.name == branch_name for branch in repo.get_branches()):
-                ref = repo.get_git_ref("heads/main")
-                repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=ref.object.sha)
+            if any(branch.name == branch_name for branch in repo.get_branches()):
+                self.log("Branch %s already exists", branch_name)
+                return
 
-                commit_message = f"Bump Home Assistant version to `{local_version}`"
-                repo.update_file(
-                    ".HA_VERSION",
-                    commit_message,
-                    local_version + "\n",
-                    remote_file.sha,
-                    branch=branch_name,
-                )
+            ref = repo.get_git_ref("heads/main")
+            repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=ref.object.sha)
 
-                pr = repo.create_pull(
-                    title=commit_message,
-                    head=branch_name,
-                    base="main",
-                    draft=False,
-                )
+            commit_message = f"Bump Home Assistant version to `{local_version}`"
 
-                self.persistent_notification(
-                    title="Home Assistant Version Bump",
-                    message=f"A [pull request]({pr.html_url}) has been created to bump the Home"
-                    f" Assistant current version from {remote_version} to {local_version}.",
-                )
+            self.log("Creating commit with message: %s", commit_message)
+
+            repo.update_file(
+                ".HA_VERSION",
+                commit_message,
+                local_version + "\n",
+                remote_file.sha,
+                branch=branch_name,
+            )
+
+            self.log("Creating pull request")
+
+            pr = repo.create_pull(
+                title=commit_message,
+                head=branch_name,
+                base="main",
+                draft=False,
+            )
+
+            self.persistent_notification(
+                title="Home Assistant Version Bump",
+                message=f"A [pull request]({pr.html_url}) has been created to bump the current"
+                f" Home Assistant version from {remote_version} to {local_version}.",
+            )
