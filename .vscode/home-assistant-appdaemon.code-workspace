@@ -3,6 +3,10 @@
 		{
 			"path": ".."
 		},
+        {
+            "name": "SSH FS - /config",
+            "uri": "ssh://hasspi-config/config"
+        },
 		{
 			"name": "SSH FS - /config/appdaemon",
 			"uri": "ssh://hasspi-appdaemon/config/appdaemon"

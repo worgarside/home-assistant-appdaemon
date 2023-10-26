@@ -63,3 +63,10 @@ santander_balance_getter:
   client_secret: !secret truelayer_client_secret
   account_ids:
     current_account: !secret truelayer_santander_current_account_id
+
+# Version File Committer
+
+version_file_committer:
+  module: version_file_committer
+  class: VersionFileCommitter
+  github_token: !secret appdaemon_github_token
