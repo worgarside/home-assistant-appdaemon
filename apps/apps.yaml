@@ -1,5 +1,4 @@
 ---
-
 # Google Fit Variables
 
 google_fit_variable_getter:
@@ -69,6 +68,24 @@ santander_balance_getter:
   client_secret: !secret truelayer_client_secret
   account_ids:
     current_account: !secret truelayer_santander_current_account_id
+
+starling_balance_getter:
+  module: bank_balance
+  class: BankBalanceGetter
+  bank_ref: STARLING
+  client_id: !secret truelayer_client_id
+  client_secret: !secret truelayer_client_secret
+  account_ids:
+    current_account: !secret truelayer_starling_current_account_id
+
+starling_joint_balance_getter:
+  module: bank_balance
+  class: BankBalanceGetter
+  bank_ref: STARLING_JOINT
+  client_id: !secret truelayer_client_id
+  client_secret: !secret truelayer_client_secret
+  account_ids:
+    account: !secret truelayer_starling_joint_account_id
 
 # Version File Committer
 
