@@ -5,7 +5,7 @@ from collections.abc import Callable
 from enum import StrEnum
 from json import dumps
 from pathlib import Path
-from typing import Any, Literal, overload
+from typing import Any
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from wg_utilities.clients import TrueLayerClient
@@ -68,10 +68,12 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         def update_entity_balances(_: dict[str, Any]) -> None:
             """Loop through the account/card IDs and retrieve their balances."""
             for entity_ref, entity in self.entities[entity_key].items():
-                variable_id = f"var.truelayer_balance_{self.bank.lower()}"
+                variable_id = f"var.truelayer_balance_{self.bank.name.lower()}"
 
                 if entity_ref != "no_ref":
                     variable_id += f"_{entity_ref}"
+
+                self.log("Updating `%s` balance", variable_id)
 
                 self.call_service(
                     "var/set",
@@ -89,34 +91,17 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
 
         return update_entity_balances
 
-    @overload
-    def _initialize_entities(
-        self,
-        entity_type: Literal[EntityType.ACCOUNT],
-    ) -> dict[str, Account]:
-        ...
-
-    @overload
-    def _initialize_entities(
-        self,
-        entity_type: Literal[EntityType.CARD],
-    ) -> dict[str, Card]:
-        ...
-
-    @overload
     def _initialize_entities(
         self,
         entity_type: EntityType,
-    ) -> dict[str, Account] | dict[str, Card]:
-        ...
-
-    def _initialize_entities(
-        self,
-        entity_type: EntityType,
-    ) -> dict[str, Account] | dict[str, Card]:
+    ) -> None:
         self.entities.setdefault(entity_type, {})  # type: ignore[arg-type]
 
-        get_entity_by_id = getattr(self.client, f"get_{entity_type}_by_id")
+        get_entity_by_id = (
+            self.client.get_card_by_id
+            if entity_type == EntityType.CARD
+            else self.client.get_account_by_id
+        )
 
         for entity_ref, entity_id in self.args.get(f"{entity_type}_ids", {}).items():
             if entity := get_entity_by_id(entity_id):
@@ -138,8 +123,6 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
                 entity_type,
                 ", ".join(self.entities[entity_type].keys()),
             )
-
-        return self.entities[entity_type]
 
     def error(self, msg: str, *args: Any, **kwargs: Any) -> None:
         """Override the error method to prepend the bank name."""
