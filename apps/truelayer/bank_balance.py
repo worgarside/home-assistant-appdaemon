@@ -68,7 +68,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         def update_entity_balances(_: dict[str, Any]) -> None:
             """Loop through the account/card IDs and retrieve their balances."""
             for entity_ref, entity in self.entities[entity_key].items():
-                variable_id = f"var.truelayer_balance_{self.bank.lower()}"
+                variable_id = f"var.truelayer_balance_{self.bank.name.lower()}"
 
                 if entity_ref != "no_ref":
                     variable_id += f"_{entity_ref}"
