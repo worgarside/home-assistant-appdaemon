@@ -98,7 +98,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
         recent_transactions = self.client.current_account.list_transactions(
             from_datetime=datetime.strptime(
                 self.last_auto_save.get_state(),
-                "%Y-%m-%d %H:%M:%S.%f%z",
+                "%Y-%m-%d %H:%M:%S",
             ),
         )
 

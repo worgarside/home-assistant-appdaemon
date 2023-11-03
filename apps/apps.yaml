@@ -1,5 +1,4 @@
 ---
-
 # Google Fit Variables
 
 google_fit_variable_getter:
@@ -14,19 +13,19 @@ log_processor:
   module: log_processor
   class: LogProcessor
 
-# Monzo Credit Card Pot Manager
-
-monzo_credit_card_pot_manager:
-  module: credit_card_pot_manager
-  class: CreditCardPotManager
-  client_id: !secret monzo_client_id
-  client_secret: !secret monzo_client_secret
+# Monzo
 
 monzo_auto_saver:
   module: auto_saver
   class: AutoSaver
   client_id: !secret monzo_auto_saver_client_id
   client_secret: !secret monzo_auto_saver_client_secret
+
+monzo_credit_card_pot_manager:
+  module: credit_card_pot_manager
+  class: CreditCardPotManager
+  client_id: !secret monzo_client_id
+  client_secret: !secret monzo_client_secret
 
 # Spotify Dynamic Playlists
 
