@@ -1514,13 +1514,13 @@ watchdog = ["watchdog (>=2.3)"]
 
 [[package]]
 name = "wg-utilities"
-version = "5.4.0"
+version = "5.4.1"
 description = "Loads of useful stuff for the things I do :)"
 optional = false
 python-versions = ">=3.11,<4.0"
 files = [
-    {file = "wg_utilities-5.4.0-py3-none-any.whl", hash = "sha256:4c02a3a1e8bbbd768439a174eef7ad9f82104092d2682ef38be55d824a30a88c"},
-    {file = "wg_utilities-5.4.0.tar.gz", hash = "sha256:bf01f3e154a8253205b48da44bc41778b450a5b03a470f34748f9c6c1ac23094"},
+    {file = "wg_utilities-5.4.1-py3-none-any.whl", hash = "sha256:4502ee38b8f8bdd6d75f5d9cd289ea78d03929126bf0339f8b31f276c3f3092d"},
+    {file = "wg_utilities-5.4.1.tar.gz", hash = "sha256:703ffb7709b5f1267c3ed28f6e1b738d1c4f47a380d3505ee0a3b6976592d518"},
 ]
 
 [package.dependencies]
@@ -1729,4 +1729,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "2080dc45fe86f1e8edc693fb2c4053a9d890bc7217a0904b4db48c817ec4bbef"
+content-hash = "7ad3268d71f0ce56a4b74a38f6cf53eaf929ba9003043eb337902859c513e873"
