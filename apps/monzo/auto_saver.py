@@ -102,12 +102,16 @@ class AutoSaver(Hass):  # type: ignore[misc]
             ),
         )
 
+        self.log("Found %s transactions since last auto-save", len(recent_transactions))
+
         auto_save_amount = sum(
             [
                 self._get_round_up_pence(recent_transactions),
                 self._get_percentage_of_debit_transactions(recent_transactions),
             ],
         ) + (self.auto_save_minimum.get_state() * 100)
+
+        self.log("Auto-save amount is %s", auto_save_amount)
 
         self.call_service(
             "var/set",
