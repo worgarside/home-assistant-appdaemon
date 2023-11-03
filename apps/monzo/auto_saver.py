@@ -55,6 +55,16 @@ class AutoSaver(Hass):  # type: ignore[misc]
             ],
         )
 
+        self.log("Listen state registered for %s", self.savings_pot.name)
+
+        self.calculate(
+            "",
+            "state",
+            "",
+            "-",
+            {},
+        )
+
     def _get_round_up_pence(self, transactions: list[Transaction], /) -> int:
         """Sum the round-up amounts from a list of transactions.
 
@@ -70,7 +80,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
         /,
     ) -> int:
         """Get the percentage of income to save."""
-        percentage = self.debit_transaction_percentage.get_state()
+        percentage = float(self.debit_transaction_percentage.get_state()) / 100
 
         return int(
             sum(
@@ -86,11 +96,10 @@ class AutoSaver(Hass):  # type: ignore[misc]
         attribute: Literal["state"],
         old: str,
         new: str,
-        pin_app: bool,  # noqa: FBT001
-        **kwargs: dict[str, Any],
+        kwargs: dict[str, Any],
     ) -> None:
         """Calculate the current auto-save amount."""
-        _ = entity, old, pin_app, kwargs
+        _ = entity, old, kwargs
 
         if attribute != "state" or not new:
             return
@@ -109,7 +118,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
                 self._get_round_up_pence(recent_transactions),
                 self._get_percentage_of_debit_transactions(recent_transactions),
             ],
-        ) + (self.auto_save_minimum.get_state() * 100)
+        ) + (float(self.auto_save_minimum.get_state()) * 100)
 
         self.log("Auto-save amount is %s", auto_save_amount)
 
