@@ -23,6 +23,8 @@ class AutoSaver(Hass):  # type: ignore[misc]
     last_auto_save: Entity
     savings_pot: Pot
 
+    transactions: list[Transaction]
+
     def initialize(self) -> None:
         """Initialize the app."""
         add_warehouse_handler(self.err)
@@ -45,6 +47,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
             "input_number.auto_save_debit_transaction_percentage",
         )
         self.last_auto_save = self.get_entity("input_datetime.last_auto_save")
+        self.transactions = []
 
         self.listen_state(
             self.calculate,
@@ -104,14 +107,29 @@ class AutoSaver(Hass):  # type: ignore[misc]
         if attribute != "state" or not new:
             return
 
-        recent_transactions = self.client.current_account.list_transactions(
-            from_datetime=datetime.strptime(
+        from_datetime = (
+            datetime.strptime(
                 self.last_auto_save.get_state(),
                 "%Y-%m-%d %H:%M:%S",
-            ),
+            )
+            if not self.transactions
+            else max(
+                self.transactions,
+                key=lambda transaction: transaction.created,
+            ).created
         )
 
-        self.log("Found %s transactions since last auto-save", len(recent_transactions))
+        recent_transactions = self.client.current_account.list_transactions(
+            from_datetime=from_datetime,
+        )
+
+        self.transactions.extend(recent_transactions)
+
+        self.log(
+            "Found %s new transactions (%i total)",
+            len(recent_transactions),
+            len(self.transactions),
+        )
 
         auto_save_amount = sum(
             [
