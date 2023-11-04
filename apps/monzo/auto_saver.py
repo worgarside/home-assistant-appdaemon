@@ -1,7 +1,7 @@
 """Automatically save money based on certain criteria."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Final, Literal
 
@@ -68,19 +68,17 @@ class AutoSaver(Hass):  # type: ignore[misc]
             {},
         )
 
-    def _get_round_up_pence(self, transactions: list[Transaction], /) -> int:
+    def _get_round_up_pence(self) -> int:
         """Sum the round-up amounts from a list of transactions.
 
         Transactions at integer pound values will result in a round-up of 100p.
         """
         return sum(
-            100 - int(str(transaction.amount)[-2:]) for transaction in transactions
+            100 - int(str(transaction.amount)[-2:]) for transaction in self.transactions
         )
 
     def _get_percentage_of_debit_transactions(
         self,
-        transactions: list[Transaction],
-        /,
     ) -> int:
         """Get the percentage of income to save."""
         percentage = float(self.debit_transaction_percentage.get_state()) / 100
@@ -88,7 +86,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
         return int(
             sum(
                 percentage * transaction.amount
-                for transaction in transactions
+                for transaction in self.transactions
                 if transaction.amount > 0
             ),
         )
@@ -117,6 +115,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
                 self.transactions,
                 key=lambda transaction: transaction.created,
             ).created
+            + timedelta(seconds=1)
         )
 
         recent_transactions = self.client.current_account.list_transactions(
@@ -133,8 +132,8 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         auto_save_amount = sum(
             [
-                self._get_round_up_pence(recent_transactions),
-                self._get_percentage_of_debit_transactions(recent_transactions),
+                self._get_round_up_pence(),
+                self._get_percentage_of_debit_transactions(),
             ],
         ) + (float(self.auto_save_minimum.get_state()) * 100)
 
