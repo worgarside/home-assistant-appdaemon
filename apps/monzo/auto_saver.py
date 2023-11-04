@@ -7,7 +7,7 @@ from typing import Any, Final, Literal
 
 from appdaemon.entity import Entity  # type: ignore[import-not-found]
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
-from wg_utilities.clients import MonzoClient
+from wg_utilities.clients import MonzoClient, SpotifyClient
 from wg_utilities.clients.monzo import Pot, Transaction
 from wg_utilities.loggers import add_warehouse_handler
 
@@ -17,48 +17,55 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
     AUTO_SAVE_VARIABLE_ID: Final[str] = "var.auto_save_amount"
 
-    client: MonzoClient
-    auto_save_minimum: Entity
-    debit_transaction_percentage: Entity
-    last_auto_save: Entity
+    _auto_save_minimum: Entity
+    _debit_transaction_percentage: Entity
+    _last_auto_save: Entity
+    monzo_client: MonzoClient
     savings_pot: Pot
-
+    spotify_client: SpotifyClient
     transactions: list[Transaction]
 
     def initialize(self) -> None:
         """Initialize the app."""
         add_warehouse_handler(self.err)
 
-        self.client = MonzoClient(
-            client_id=self.args["client_id"],
-            client_secret=self.args["client_secret"],
+        self.monzo_client = MonzoClient(
+            client_id=self.args["monzo_client_id"],
+            client_secret=self.args["monzo_client_secret"],
             creds_cache_dir=Path("/config/.wg-utilities/oauth_credentials"),
             use_existing_credentials_only=True,
         )
 
-        if not (savings_pot := self.client.get_pot_by_name("savings")):
+        if not (savings_pot := self.monzo_client.get_pot_by_name("savings")):
             self.error("Could not find savings pot")
             raise RuntimeError("Could not find savings pot")  # noqa: TRY003
 
         self.savings_pot = savings_pot
+        self.transactions = []
 
-        self.auto_save_minimum = self.get_entity("input_number.auto_save_minimum")
-        self.debit_transaction_percentage = self.get_entity(
+        self._auto_save_minimum = self.get_entity("input_number.auto_save_minimum")
+        self._debit_transaction_percentage = self.get_entity(
             "input_number.auto_save_debit_transaction_percentage",
         )
-        self.last_auto_save = self.get_entity("input_datetime.last_auto_save")
-        self.transactions = []
+        self._last_auto_save = self.get_entity("input_datetime.last_auto_save")
 
         self.listen_state(
             self.calculate,
             [
-                self.auto_save_minimum.entity_id,
-                self.debit_transaction_percentage.entity_id,
-                self.last_auto_save.entity_id,
+                self._auto_save_minimum.entity_id,
+                self._debit_transaction_percentage.entity_id,
+                self._last_auto_save.entity_id,
             ],
         )
 
         self.log("Listen state registered for %s", self.savings_pot.name)
+
+        self.spotify_client = SpotifyClient(
+            client_id=self.args["spotify_client_id"],
+            client_secret=self.args["spotify_client_secret"],
+            creds_cache_dir=Path("/config/.wg-utilities/oauth_credentials"),
+            use_existing_credentials_only=True,
+        )
 
         self.calculate(
             "",
@@ -66,6 +73,18 @@ class AutoSaver(Hass):  # type: ignore[misc]
             "",
             "-",
             {},
+        )
+
+    def _get_percentage_of_debit_transactions(
+        self,
+    ) -> int:
+        """Get the percentage of income to save."""
+        return int(
+            sum(
+                self.debit_transaction_percentage * transaction.amount
+                for transaction in self.transactions
+                if transaction.amount > 0
+            ),
         )
 
     def _get_round_up_pence(self) -> int:
@@ -77,19 +96,17 @@ class AutoSaver(Hass):  # type: ignore[misc]
             100 - int(str(transaction.amount)[-2:]) for transaction in self.transactions
         )
 
-    def _get_percentage_of_debit_transactions(
-        self,
-    ) -> int:
-        """Get the percentage of income to save."""
-        percentage = float(self.debit_transaction_percentage.get_state()) / 100
+    def _get_spotify_savings(self) -> int:
+        """'Pay' 79p a song to savings."""
+        liked_songs = [
+            track
+            for track in self.spotify_client.current_user.get_recently_liked_tracks(
+                day_limit=(datetime.utcnow() - self.last_auto_save).days + 1,
+            )
+            if track.metadata["saved_at"] >= self.last_auto_save
+        ]
 
-        return int(
-            sum(
-                percentage * transaction.amount
-                for transaction in self.transactions
-                if transaction.amount > 0
-            ),
-        )
+        return 79 * len(liked_songs)
 
     def calculate(
         self,
@@ -106,10 +123,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
             return
 
         from_datetime = (
-            datetime.strptime(
-                self.last_auto_save.get_state(),
-                "%Y-%m-%d %H:%M:%S",
-            )
+            self.last_auto_save
             if not self.transactions
             else max(
                 self.transactions,
@@ -118,7 +132,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
             + timedelta(seconds=1)
         )
 
-        recent_transactions = self.client.current_account.list_transactions(
+        recent_transactions = self.monzo_client.current_account.list_transactions(
             from_datetime=from_datetime,
         )
 
@@ -130,12 +144,16 @@ class AutoSaver(Hass):  # type: ignore[misc]
             len(self.transactions),
         )
 
-        auto_save_amount = sum(
-            [
-                self._get_round_up_pence(),
-                self._get_percentage_of_debit_transactions(),
-            ],
-        ) + (float(self.auto_save_minimum.get_state()) * 100)
+        auto_save_amount = (
+            sum(
+                [
+                    self._get_round_up_pence(),
+                    self._get_percentage_of_debit_transactions(),
+                    self._get_spotify_savings(),
+                ],
+            )
+            + self.auto_save_minimum
+        )
 
         self.log("Auto-save amount is %s", auto_save_amount)
 
@@ -144,4 +162,22 @@ class AutoSaver(Hass):  # type: ignore[misc]
             entity_id=self.AUTO_SAVE_VARIABLE_ID,
             value=round(auto_save_amount / 100, 2),
             force_update=True,
+        )
+
+    @property
+    def auto_save_minimum(self) -> int:
+        """Get the minimum auto-save amount."""
+        return int(float(self._auto_save_minimum.get_state()) * 100)
+
+    @property
+    def debit_transaction_percentage(self) -> float:
+        """Get the percentage of income to save."""
+        return float(self._debit_transaction_percentage.get_state()) / 100
+
+    @property
+    def last_auto_save(self) -> datetime:
+        """Get the date and time of the last auto-save."""
+        return datetime.strptime(
+            self._last_auto_save.get_state(),
+            "%Y-%m-%d %H:%M:%S",
         )
