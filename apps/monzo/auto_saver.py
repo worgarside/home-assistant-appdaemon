@@ -55,6 +55,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
                 self._auto_save_minimum.entity_id,
                 self._debit_transaction_percentage.entity_id,
                 self._last_auto_save.entity_id,
+                "var.truelayer_balance_monzo_current_account",
             ],
         )
 
