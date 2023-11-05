@@ -151,16 +151,14 @@ class AutoSaver(Hass):  # type: ignore[misc]
             len(self.transactions),
         )
 
-        auto_save_amount = (
-            sum(
-                [
-                    self._get_round_up_pence(),
-                    self._get_percentage_of_debit_transactions(),
-                    self._get_spotify_savings(),
-                ],
-            )
-            + self.auto_save_minimum
-        )
+        savings = {
+            "Round Ups": self._get_round_up_pence(),
+            "Debit Transaction Percentage": self._get_percentage_of_debit_transactions(),
+            "Spotify Tracks": self._get_spotify_savings(),
+            "Minimum": self.auto_save_minimum,
+        }
+
+        auto_save_amount = sum(savings.values())
 
         self.log("Auto-save amount is %s", auto_save_amount)
 
@@ -169,6 +167,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
             entity_id=self.AUTO_SAVE_VARIABLE_ID,
             value=round(auto_save_amount / 100, 2),
             force_update=True,
+            attributes={k: v / 100 for k, v in savings.items()},
         )
 
     def save_money(
