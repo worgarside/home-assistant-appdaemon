@@ -166,7 +166,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
             "var/set",
             entity_id=self.AUTO_SAVE_VARIABLE_ID,
             value=round(auto_save_amount / 100, 2),
-            force_update=True,
+            force_update=False,
             attributes={k: v / 100 for k, v in savings.items()},
         )
 
@@ -190,7 +190,10 @@ class AutoSaver(Hass):  # type: ignore[misc]
             dedupe_id="-".join(
                 (
                     self.name,
-                    str(self.get_state(self.AUTO_SAVE_VARIABLE_ID)),
+                    self.get_state(
+                        self.AUTO_SAVE_VARIABLE_ID,
+                        attribute="last_changed",
+                    ),
                 ),
             ),
         )
