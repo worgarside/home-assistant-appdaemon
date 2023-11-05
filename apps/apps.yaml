@@ -20,6 +20,7 @@ monzo_auto_saver:
   class: AutoSaver
   monzo_client_id: !secret monzo_auto_saver_client_id
   monzo_client_secret: !secret monzo_auto_saver_client_secret
+  savings_pot_id: !secret monzo_savings_pot_id
   spotify_client_id: !secret spotify_monzo_auto_save_client_id
   spotify_client_secret: !secret spotify_monzo_auto_save_client_secret
 
