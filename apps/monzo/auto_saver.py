@@ -186,7 +186,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         self.monzo_client.deposit_into_pot(
             self.savings_pot,
-            amount_pence=int(self.get_state(self.AUTO_SAVE_VARIABLE_ID)) * 100,
+            amount_pence=int(float(self.get_state(self.AUTO_SAVE_VARIABLE_ID)) * 100),
             dedupe_id="-".join(
                 (
                     self.name,
