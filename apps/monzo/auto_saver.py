@@ -37,7 +37,9 @@ class AutoSaver(Hass):  # type: ignore[misc]
             use_existing_credentials_only=True,
         )
 
-        if not (savings_pot := self.monzo_client.get_pot_by_name("savings")):
+        if not (
+            savings_pot := self.monzo_client.get_pot_by_id(self.args["savings_pot_id"])
+        ):
             self.error("Could not find savings pot")
             raise RuntimeError("Could not find savings pot")  # noqa: TRY003
 
