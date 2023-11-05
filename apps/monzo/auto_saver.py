@@ -20,10 +20,11 @@ class AutoSaver(Hass):  # type: ignore[misc]
     _auto_save_minimum: Entity
     _debit_transaction_percentage: Entity
     _last_auto_save: Entity
+    _transactions: list[Transaction]
+
     monzo_client: MonzoClient
     savings_pot: Pot
     spotify_client: SpotifyClient
-    transactions: list[Transaction]
 
     def initialize(self) -> None:
         """Initialize the app."""
@@ -41,13 +42,20 @@ class AutoSaver(Hass):  # type: ignore[misc]
             raise RuntimeError("Could not find savings pot")  # noqa: TRY003
 
         self.savings_pot = savings_pot
-        self.transactions = []
+        self._transactions = []
 
         self._auto_save_minimum = self.get_entity("input_number.auto_save_minimum")
         self._debit_transaction_percentage = self.get_entity(
             "input_number.auto_save_debit_transaction_percentage",
         )
         self._last_auto_save = self.get_entity("input_datetime.last_auto_save")
+
+        self.spotify_client = SpotifyClient(
+            client_id=self.args["spotify_client_id"],
+            client_secret=self.args["spotify_client_secret"],
+            creds_cache_dir=Path("/config/.wg-utilities/oauth_credentials"),
+            use_existing_credentials_only=True,
+        )
 
         self.listen_state(
             self.calculate,
@@ -61,11 +69,9 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         self.log("Listen state registered for %s", self.savings_pot.name)
 
-        self.spotify_client = SpotifyClient(
-            client_id=self.args["spotify_client_id"],
-            client_secret=self.args["spotify_client_secret"],
-            creds_cache_dir=Path("/config/.wg-utilities/oauth_credentials"),
-            use_existing_credentials_only=True,
+        self.listen_state(
+            self.save_money,
+            "input_boolean.ad_monzo_auto_save",
         )
 
         self.calculate(
@@ -137,7 +143,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
             from_datetime=from_datetime,
         )
 
-        self.transactions.extend(recent_transactions)
+        self._transactions.extend(recent_transactions)
 
         self.log(
             "Found %s new transactions (%i total)",
@@ -165,6 +171,37 @@ class AutoSaver(Hass):  # type: ignore[misc]
             force_update=True,
         )
 
+    def save_money(
+        self,
+        entity: Literal["input_boolean.ad_monzo_auto_save"],
+        attribute: Literal["state"],
+        old: str,
+        new: str,
+        kwargs: dict[str, Any],
+    ) -> None:
+        """Save money to the savings pot."""
+        _ = entity, attribute, kwargs
+
+        if old == new or ({old, new} & {"unavailable", "unknown"}):
+            return
+
+        self.monzo_client.deposit_into_pot(
+            self.savings_pot,
+            amount_pence=int(self.get_state(self.AUTO_SAVE_VARIABLE_ID) * 100),
+            dedupe_id="-".join(
+                (
+                    self.name,
+                    str(self.get_state(self.AUTO_SAVE_VARIABLE_ID)),
+                ),
+            ),
+        )
+
+        self.call_service(
+            "input_datetime/set_datetime",
+            entity_id=self._last_auto_save.entity_id,
+            datetime=datetime.utcnow().isoformat(),
+        )
+
     @property
     def auto_save_minimum(self) -> int:
         """Get the minimum auto-save amount."""
@@ -182,3 +219,14 @@ class AutoSaver(Hass):  # type: ignore[misc]
             self._last_auto_save.get_state(),
             "%Y-%m-%d %H:%M:%S",
         )
+
+    @property
+    def transactions(self) -> list[Transaction]:
+        """Get the list of transactions."""
+        self._transactions = [
+            tx
+            for tx in self._transactions
+            if tx.created.timestamp() >= self.last_auto_save.timestamp()
+        ]
+
+        return self._transactions
