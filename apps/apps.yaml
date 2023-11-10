@@ -47,7 +47,7 @@ amex_balance_getter:
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
   card_ids:
-    no_ref: !secret truelayer_amex_card_id
+    no_ref:
 
 hsbc_balance_getter:
   module: bank_balance

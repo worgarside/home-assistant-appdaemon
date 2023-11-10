@@ -78,9 +78,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
                 self.call_service(
                     "var/set",
                     entity_id=variable_id,
-                    value=entity.available_balance
-                    if entity_key == EntityType.ACCOUNT
-                    else entity.current_balance,
+                    value=entity.balance,
                     force_update=True,
                 )
 
@@ -103,16 +101,33 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
             else self.client.get_account_by_id
         )
 
+        list_entities = (
+            self.client.list_cards
+            if entity_type == EntityType.CARD
+            else self.client.list_accounts
+        )
+
         for entity_ref, entity_id in self.args.get(f"{entity_type}_ids", {}).items():
-            if entity := get_entity_by_id(entity_id):
-                self.entities[entity_type][entity_ref] = entity
-            else:
+            if entity_id is None:
+                if len(entities := list_entities()) == 1:
+                    entity: Account | Card = entities[0]
+                else:
+                    self.error(
+                        "Multiple %s found for `%s`, please specify an ID",
+                        entity_type.title(),
+                        entity_ref,
+                    )
+                    continue
+            elif (entity := get_entity_by_id(entity_id)) is None:  # type: ignore[assignment]
                 self.error(
                     "%s not found for `%s` with ID `%s`",
                     entity_type.title(),
                     entity_ref,
                     entity_id,
                 )
+                continue
+
+            self.entities[entity_type][entity_ref] = entity
 
         if self.entities[entity_type]:
             callback = self._callback_factory(entity_type)
