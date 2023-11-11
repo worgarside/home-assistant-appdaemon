@@ -141,6 +141,9 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
     def _get_percentage_of_naughty_transactions_value(self) -> int:
         """Get the amount to save from naughty transactions."""
+        if self.naughty_transaction_pattern is None:
+            return 0
+
         amount = 0.0
 
         for tx in self.amex_transactions:
@@ -317,12 +320,15 @@ class AutoSaver(Hass):  # type: ignore[misc]
         )
 
     @property
-    def naughty_transaction_pattern(self) -> Pattern[str]:
+    def naughty_transaction_pattern(self) -> Pattern[str] | None:
         """Get the regex pattern to match naughty transactions against."""
-        return re_compile(
-            self._naughty_transaction_pattern.get_state(),
-            flags=IGNORECASE,
-        )
+        if pattern_str := self._naughty_transaction_pattern.get_state():
+            return re_compile(
+                pattern_str,
+                flags=IGNORECASE,
+            )
+
+        return None
 
     @property
     def naughty_transaction_percentage(self) -> float:
