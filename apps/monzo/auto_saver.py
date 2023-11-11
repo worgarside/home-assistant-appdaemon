@@ -7,9 +7,14 @@ from typing import Any, Final, Literal
 
 from appdaemon.entity import Entity  # type: ignore[import-not-found]
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
-from wg_utilities.clients import MonzoClient, SpotifyClient
-from wg_utilities.clients.monzo import Pot, Transaction
+from wg_utilities.clients import MonzoClient, SpotifyClient, TrueLayerClient
+from wg_utilities.clients.monzo import Pot
+from wg_utilities.clients.monzo import Transaction as MonzoTransaction
+from wg_utilities.clients.truelayer import Bank, Card
+from wg_utilities.clients.truelayer import Transaction as TrueLayerTransaction
 from wg_utilities.loggers import add_warehouse_handler
+
+CACHE_DIR = Path("/config/.wg-utilities/oauth_credentials")
 
 
 class AutoSaver(Hass):  # type: ignore[misc]
@@ -20,8 +25,10 @@ class AutoSaver(Hass):  # type: ignore[misc]
     _auto_save_minimum: Entity
     _debit_transaction_percentage: Entity
     _last_auto_save: Entity
-    _transactions: list[Transaction]
+    _amex_transactions: list[TrueLayerTransaction]
+    _monzo_transactions: list[MonzoTransaction]
 
+    amex_card: Card
     monzo_client: MonzoClient
     savings_pot: Pot
     spotify_client: SpotifyClient
@@ -30,10 +37,24 @@ class AutoSaver(Hass):  # type: ignore[misc]
         """Initialize the app."""
         add_warehouse_handler(self.err)
 
+        truelayer_client_id = self.args["truelayer_client_id"]
+
+        self.amex_card = TrueLayerClient(
+            client_id=truelayer_client_id,
+            client_secret=self.args["truelayer_client_secret"],
+            creds_cache_path=CACHE_DIR.joinpath(
+                "TrueLayerClient",
+                truelayer_client_id,
+                "amex_auto_saver.json",
+            ),
+            use_existing_credentials_only=True,
+            bank=Bank.AMEX,
+        ).list_cards()[0]
+
         self.monzo_client = MonzoClient(
             client_id=self.args["monzo_client_id"],
             client_secret=self.args["monzo_client_secret"],
-            creds_cache_dir=Path("/config/.wg-utilities/oauth_credentials"),
+            creds_cache_dir=CACHE_DIR,
             use_existing_credentials_only=True,
         )
 
@@ -44,7 +65,9 @@ class AutoSaver(Hass):  # type: ignore[misc]
             raise RuntimeError("Could not find savings pot")  # noqa: TRY003
 
         self.savings_pot = savings_pot
-        self._transactions = []
+
+        self._amex_transactions = []
+        self._monzo_transactions = []
 
         self._auto_save_minimum = self.get_entity("input_number.auto_save_minimum")
         self._debit_transaction_percentage = self.get_entity(
@@ -102,7 +125,8 @@ class AutoSaver(Hass):  # type: ignore[misc]
         Transactions at integer pound values will result in a round-up of 100p.
         """
         return sum(
-            100 - int(str(transaction.amount)[-2:]) for transaction in self.transactions
+            100 - int((transaction.amount * 100) % 100)
+            for transaction in self.transactions
         )
 
     def _get_spotify_savings(self) -> int:
@@ -131,27 +155,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
         if attribute != "state" or not new:
             return
 
-        from_datetime = (
-            self.last_auto_save
-            if not self.transactions
-            else max(
-                self.transactions,
-                key=lambda transaction: transaction.created,
-            ).created
-            + timedelta(seconds=1)
-        )
-
-        recent_transactions = self.monzo_client.current_account.list_transactions(
-            from_datetime=from_datetime,
-        )
-
-        self._transactions.extend(recent_transactions)
-
-        self.log(
-            "Found %s new transactions (%i total)",
-            len(recent_transactions),
-            len(self.transactions),
-        )
+        self.update_transaction_records()
 
         savings = {
             "Round Ups": self._get_round_up_pence(),
@@ -206,6 +210,42 @@ class AutoSaver(Hass):  # type: ignore[misc]
             datetime=datetime.utcnow().isoformat(),
         )
 
+    def update_transaction_records(self) -> None:
+        """Get the newest transactions from Amex/Monzo."""
+        for transactions, timestamp_attr, sort_by, get_transactions in (
+            (
+                self._amex_transactions,
+                "timestamp",
+                lambda tx: tx.timestamp,
+                self.amex_card.get_transactions,
+            ),
+            (
+                self._monzo_transactions,
+                "created",
+                lambda tx: tx.created,
+                self.monzo_client.current_account.list_transactions,
+            ),
+        ):
+            from_datetime = (
+                self.last_auto_save
+                if not transactions
+                else getattr(
+                    max(transactions, key=sort_by),
+                    timestamp_attr,
+                )
+                + timedelta(seconds=1)
+            )
+
+            recent_transactions = get_transactions(from_datetime=from_datetime)  # type: ignore[operator]
+
+            transactions.extend(recent_transactions)
+
+            self.log(
+                "Found %s new transactions (%i total)",
+                len(recent_transactions),
+                len(transactions),
+            )
+
     @property
     def auto_save_minimum(self) -> int:
         """Get the minimum auto-save amount."""
@@ -225,12 +265,22 @@ class AutoSaver(Hass):  # type: ignore[misc]
         )
 
     @property
-    def transactions(self) -> list[Transaction]:
-        """Get the list of transactions."""
-        self._transactions = [
+    def transactions(self) -> list[MonzoTransaction | TrueLayerTransaction]:
+        """Get the list of transactions on my Amex card or Monzo account.
+
+        Only transactions since the last auto-save are returned.
+        """
+        self._amex_transactions = [
             tx
-            for tx in self._transactions
+            for tx in self._amex_transactions
+            # Use .timestamp() to avoid timezone issues
+            if tx.timestamp.timestamp() >= self.last_auto_save.timestamp()
+        ]
+
+        self._monzo_transactions = [
+            tx
+            for tx in self._monzo_transactions
             if tx.created.timestamp() >= self.last_auto_save.timestamp()
         ]
 
-        return self._transactions
+        return self._amex_transactions + self._monzo_transactions
