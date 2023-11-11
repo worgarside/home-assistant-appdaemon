@@ -131,11 +131,6 @@ class AutoSaver(Hass):  # type: ignore[misc]
                 self.debit_transaction_percentage * transaction.amount
                 for transaction in self.monzo_transactions
                 if transaction.amount > 0
-            )
-            + sum(
-                self.debit_transaction_percentage * transaction.amount * 100
-                for transaction in self.amex_transactions
-                if transaction.amount > 0
             ),
         )
 
