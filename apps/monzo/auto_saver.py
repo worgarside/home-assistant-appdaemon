@@ -125,7 +125,8 @@ class AutoSaver(Hass):  # type: ignore[misc]
         Transactions at integer pound values will result in a round-up of 100p.
         """
         return sum(
-            100 - int(str(transaction.amount)[-2:]) for transaction in self.transactions
+            100 - int((transaction.amount * 100) % 100)
+            for transaction in self.transactions
         )
 
     def _get_spotify_savings(self) -> int:
