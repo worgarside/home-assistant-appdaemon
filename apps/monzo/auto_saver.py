@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
+from re import IGNORECASE, Pattern
+from re import compile as re_compile
 from typing import Any, Final, Literal
 
 from appdaemon.entity import Entity  # type: ignore[import-not-found]
@@ -25,6 +27,9 @@ class AutoSaver(Hass):  # type: ignore[misc]
     _auto_save_minimum: Entity
     _debit_transaction_percentage: Entity
     _last_auto_save: Entity
+    _naughty_transaction_pattern: Entity
+    _naughty_transaction_percentage: Entity
+
     _amex_transactions: list[TrueLayerTransaction]
     _monzo_transactions: list[MonzoTransaction]
 
@@ -74,6 +79,12 @@ class AutoSaver(Hass):  # type: ignore[misc]
             "input_number.auto_save_debit_transaction_percentage",
         )
         self._last_auto_save = self.get_entity("input_datetime.last_auto_save")
+        self._naughty_transaction_pattern = self.get_entity(
+            "input_text.auto_save_naughty_transaction_pattern",
+        )
+        self._naughty_transaction_percentage = self.get_entity(
+            "input_number.auto_save_naughty_transaction_percentage",
+        )
 
         self.spotify_client = SpotifyClient(
             client_id=self.args["spotify_client_id"],
@@ -84,15 +95,21 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         self.listen_state(
             self.calculate,
-            [
+            listen_entities := [
                 self._auto_save_minimum.entity_id,
                 self._debit_transaction_percentage.entity_id,
                 self._last_auto_save.entity_id,
+                self._naughty_transaction_pattern.entity_id,
+                self._naughty_transaction_percentage.entity_id,
                 "var.truelayer_balance_monzo_current_account",
             ],
         )
 
-        self.log("Listen state registered for %s", self.savings_pot.name)
+        self.log(
+            "Listen states registered for %i entities: %s",
+            len(listen_entities),
+            ", ".join(listen_entities),
+        )
 
         self.listen_state(
             self.save_money,
@@ -107,26 +124,45 @@ class AutoSaver(Hass):  # type: ignore[misc]
             {},
         )
 
-    def _get_percentage_of_debit_transactions(
-        self,
-    ) -> int:
+    def _get_percentage_of_debit_transactions_value(self) -> int:
         """Get the percentage of income to save."""
         return int(
             sum(
                 self.debit_transaction_percentage * transaction.amount
-                for transaction in self.transactions
+                for transaction in self.monzo_transactions
+                if transaction.amount > 0
+            )
+            + sum(
+                self.debit_transaction_percentage * transaction.amount * 100
+                for transaction in self.amex_transactions
                 if transaction.amount > 0
             ),
         )
+
+    def _get_percentage_of_naughty_transactions_value(self) -> int:
+        """Get the amount to save from naughty transactions."""
+        amount = 0.0
+
+        for tx in self.amex_transactions:
+            if self.naughty_transaction_pattern.search(tx.description):
+                amount += tx.amount  # GBP
+
+        return int(self.naughty_transaction_percentage * amount * 100)  # pence
 
     def _get_round_up_pence(self) -> int:
         """Sum the round-up amounts from a list of transactions.
 
         Transactions at integer pound values will result in a round-up of 100p.
         """
-        return sum(
-            100 - int((transaction.amount * 100) % 100)
-            for transaction in self.transactions
+        return int(
+            sum(
+                100 - ((transaction.amount * 100) % 100)
+                for transaction in self.monzo_transactions
+            )
+            + sum(
+                100 - (transaction.amount % 100)
+                for transaction in self.amex_transactions
+            ),
         )
 
     def _get_spotify_savings(self) -> int:
@@ -159,7 +195,8 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         savings = {
             "Round Ups": self._get_round_up_pence(),
-            "Debit Transaction Percentage": self._get_percentage_of_debit_transactions(),
+            "Debit Transaction Percentage": self._get_percentage_of_debit_transactions_value(),
+            "Naughty Transaction Percentage": self._get_percentage_of_naughty_transactions_value(),
             "Spotify Tracks": self._get_spotify_savings(),
             "Minimum": self.auto_save_minimum,
         }
@@ -247,6 +284,21 @@ class AutoSaver(Hass):  # type: ignore[misc]
             )
 
     @property
+    def amex_transactions(self) -> list[TrueLayerTransaction]:
+        """Get the list of transactions on my Amex card.
+
+        Only transactions since the last auto-save are returned.
+        """
+        self._amex_transactions = [
+            tx
+            for tx in self._amex_transactions
+            # Use .timestamp() to avoid timezone issues
+            if tx.timestamp.timestamp() >= self.last_auto_save.timestamp()
+        ]
+
+        return self._amex_transactions
+
+    @property
     def auto_save_minimum(self) -> int:
         """Get the minimum auto-save amount."""
         return int(float(self._auto_save_minimum.get_state()) * 100)
@@ -265,22 +317,29 @@ class AutoSaver(Hass):  # type: ignore[misc]
         )
 
     @property
-    def transactions(self) -> list[MonzoTransaction | TrueLayerTransaction]:
-        """Get the list of transactions on my Amex card or Monzo account.
+    def naughty_transaction_pattern(self) -> Pattern[str]:
+        """Get the regex pattern to match naughty transactions against."""
+        return re_compile(
+            self._naughty_transaction_pattern.get_state(),
+            flags=IGNORECASE,
+        )
+
+    @property
+    def naughty_transaction_percentage(self) -> float:
+        """Get the percentage of naughty transactions to save."""
+        return float(self._naughty_transaction_percentage.get_state()) / 100
+
+    @property
+    def monzo_transactions(self) -> list[MonzoTransaction]:
+        """Get the list of transactions on my Monzo account.
 
         Only transactions since the last auto-save are returned.
         """
-        self._amex_transactions = [
-            tx
-            for tx in self._amex_transactions
-            # Use .timestamp() to avoid timezone issues
-            if tx.timestamp.timestamp() >= self.last_auto_save.timestamp()
-        ]
-
         self._monzo_transactions = [
             tx
             for tx in self._monzo_transactions
+            # Use .timestamp() to avoid timezone issues
             if tx.created.timestamp() >= self.last_auto_save.timestamp()
         ]
 
-        return self._amex_transactions + self._monzo_transactions
+        return self._monzo_transactions
