@@ -265,13 +265,21 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
     @property
     def transactions(self) -> list[MonzoTransaction | TrueLayerTransaction]:
-        """Get the list of transactions."""
+        """Get the list of transactions on my Amex card or Monzo account.
+
+        Only transactions since the last auto-save are returned.
+        """
         self._amex_transactions = [
-            tx for tx in self._amex_transactions if tx.timestamp >= self.last_auto_save
+            tx
+            for tx in self._amex_transactions
+            # Use .timestamp() to avoid timezone issues
+            if tx.timestamp.timestamp() >= self.last_auto_save.timestamp()
         ]
 
         self._monzo_transactions = [
-            tx for tx in self._monzo_transactions if tx.created >= self.last_auto_save
+            tx
+            for tx in self._monzo_transactions
+            if tx.created.timestamp() >= self.last_auto_save.timestamp()
         ]
 
         return self._amex_transactions + self._monzo_transactions
