@@ -93,7 +93,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         self,
         entity_type: EntityType,
     ) -> None:
-        self.entities.setdefault(entity_type, {})  
+        self.entities.setdefault(entity_type, {})
 
         get_entity_by_id = (
             self.client.get_card_by_id
