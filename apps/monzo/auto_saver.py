@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from json import dumps
 from pathlib import Path
 from re import IGNORECASE, Pattern
 from re import compile as re_compile
@@ -124,48 +125,60 @@ class AutoSaver(Hass):  # type: ignore[misc]
             {},
         )
 
-    def _get_percentage_of_debit_transactions_value(self) -> int:
+    def _get_percentage_of_debit_transactions_value(self) -> tuple[int, list[str]]:
         """Get the percentage of income to save."""
-        return int(
-            sum(
-                self.debit_transaction_percentage * transaction.amount
-                for transaction in self.monzo_transactions
-                if transaction.amount > 0
-            ),
-        )
+        amount = 0
+        breakdown = []
 
-    def _get_percentage_of_naughty_transactions_value(self) -> int:
+        for tx in self.monzo_transactions:
+            if tx.amount <= 0:
+                continue
+
+            amount += tx.amount
+            breakdown.append(f"£{tx.amount/100:.2f} @ {tx.description}")
+
+        return int(self.debit_transaction_percentage * amount), breakdown
+
+    def _get_percentage_of_naughty_transactions_value(
+        self,
+    ) -> tuple[int, list[str]]:
         """Get the amount to save from naughty transactions."""
         if self.naughty_transaction_pattern is None:
-            return 0
+            return 0, ["No pattern set!"]
 
-        amount = sum(  # + GBP
-            transaction.amount for transaction in self.naughty_transactions
+        naughty_txs = self.naughty_transactions
+
+        amount = sum(transaction.amount for transaction in naughty_txs)  # + GBP
+
+        return (
+            int(self.naughty_transaction_percentage * amount * 100),  # pence
+            [f"£{tx.amount} @ {tx.description}" for tx in naughty_txs],
         )
 
-        return int(self.naughty_transaction_percentage * amount * 100)  # pence
-
-    def _get_round_up_pence(self) -> int:
+    def _get_round_up_pence(self) -> tuple[int, None]:
         """Sum the round-up amounts from a list of transactions.
 
         Transactions at integer pound values will result in a round-up of 100p.
 
         Returns a value in pence.
         """
-        return int(
-            sum(
-                (100 - (-transaction.amount % 100))  # - pence
-                for transaction in self.monzo_transactions
-            )
-            + sum(
-                100 - ((transaction.amount * 100) % 100)  # + GBP
-                for transaction in self.amex_transactions
+        return (
+            int(
+                sum(
+                    (100 - (-transaction.amount % 100))  # - pence
+                    for transaction in self.monzo_transactions
+                )
+                + sum(
+                    100 - ((transaction.amount * 100) % 100)  # + GBP
+                    for transaction in self.amex_transactions
+                ),
             ),
+            None,
         )
 
-    def _get_spotify_savings(self) -> int:
+    def _get_spotify_savings(self) -> tuple[int, list[str]]:
         """'Pay' 79p a song to savings."""
-        liked_songs = [
+        liked_tracks = [
             track
             for track in self.spotify_client.current_user.get_recently_liked_tracks(
                 day_limit=(datetime.utcnow() - self.last_auto_save).days + 1,
@@ -173,7 +186,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
             if track.metadata["saved_at"] >= self.last_auto_save
         ]
 
-        return 79 * len(liked_songs)
+        return 79 * len(liked_tracks), [str(track) for track in liked_tracks]
 
     def calculate(
         self,
@@ -191,24 +204,49 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         self.update_transaction_records()
 
-        savings = {
-            "Round Ups": self._get_round_up_pence(),
-            "Debit Transaction Percentage": self._get_percentage_of_debit_transactions_value(),
-            "Naughty Transaction Percentage": self._get_percentage_of_naughty_transactions_value(),
-            "Spotify Tracks": self._get_spotify_savings(),
-            "Minimum": self.auto_save_minimum,
-        }
+        savings: dict[str, int] = {}
+        breakdown: dict[str, dict[str, list[str]] | list[str]] = {}
+
+        for category, saving in (
+            (
+                "Round Ups",
+                self._get_round_up_pence(),
+            ),
+            (
+                "Debit Transaction Percentage",
+                self._get_percentage_of_debit_transactions_value(),
+            ),
+            (
+                "Naughty Transaction Percentage",
+                self._get_percentage_of_naughty_transactions_value(),
+            ),
+            (
+                "Spotify Tracks",
+                self._get_spotify_savings(),
+            ),
+        ):
+            amount, bd = saving
+
+            savings[category] = amount
+            if bd is not None:
+                breakdown[category] = bd
+
+        savings["Minimum"] = self.auto_save_minimum
 
         auto_save_amount = sum(savings.values())
 
         self.log("Auto-save amount is %s", auto_save_amount)
+
+        attributes: dict[str, float | str] = {k: v / 100 for k, v in savings.items()}
+
+        attributes["Breakdown"] = dumps(breakdown)
 
         self.call_service(
             "var/set",
             entity_id=self.AUTO_SAVE_VARIABLE_ID,
             value=round(auto_save_amount / 100, 2),
             force_update=False,
-            attributes={k: v / 100 for k, v in savings.items()},
+            attributes=attributes,
         )
 
     def save_money(
