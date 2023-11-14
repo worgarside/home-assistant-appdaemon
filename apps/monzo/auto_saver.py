@@ -139,11 +139,9 @@ class AutoSaver(Hass):  # type: ignore[misc]
         if self.naughty_transaction_pattern is None:
             return 0
 
-        amount = 0.0
-
-        for tx in self.amex_transactions:
-            if self.naughty_transaction_pattern.search(tx.description):
-                amount += tx.amount  # GBP
+        amount = sum(  # + GBP
+            transaction.amount for transaction in self.naughty_transactions
+        )
 
         return int(self.naughty_transaction_percentage * amount * 100)  # pence
 
@@ -151,14 +149,16 @@ class AutoSaver(Hass):  # type: ignore[misc]
         """Sum the round-up amounts from a list of transactions.
 
         Transactions at integer pound values will result in a round-up of 100p.
+
+        Returns a value in pence.
         """
         return int(
             sum(
-                100 - ((transaction.amount * 100) % 100)
+                (100 - (-transaction.amount % 100))  # - pence
                 for transaction in self.monzo_transactions
             )
             + sum(
-                100 - (transaction.amount % 100)
+                100 - ((transaction.amount * 100) % 100)  # + GBP
                 for transaction in self.amex_transactions
             ),
         )
@@ -286,6 +286,8 @@ class AutoSaver(Hass):  # type: ignore[misc]
         """Get the list of transactions on my Amex card.
 
         Only transactions since the last auto-save are returned.
+
+        Amount is positive and in GBP.
         """
         self._amex_transactions = [
             tx
@@ -331,10 +333,28 @@ class AutoSaver(Hass):  # type: ignore[misc]
         return float(self._naughty_transaction_percentage.get_state()) / 100
 
     @property
+    def naughty_transactions(self) -> list[TrueLayerTransaction]:
+        """Get the list of naughty transactions on my Amex card.
+
+        Only transactions since the last auto-save are returned.
+        """
+        if self.naughty_transaction_pattern is None:
+            return []
+
+        return [
+            tx
+            for tx in self.amex_transactions
+            if self.naughty_transaction_pattern.search(tx.description)
+            and tx.amount > 0  # GBP
+        ]
+
+    @property
     def monzo_transactions(self) -> list[MonzoTransaction]:
         """Get the list of transactions on my Monzo account.
 
         Only transactions since the last auto-save are returned.
+
+        Amount is negative and in pence.
         """
         self._monzo_transactions = [
             tx

@@ -5,11 +5,11 @@
 		},
         {
             "name": "SSH FS - /config",
-            "uri": "ssh://hasspi-config/config"
+            "uri": "ssh://hasspi-config/homeassistant"
         },
 		{
 			"name": "SSH FS - /config/appdaemon",
-			"uri": "ssh://hasspi-appdaemon/config/appdaemon"
+			"uri": "ssh://hasspi-appdaemon/homeassistant/appdaemon"
 		},
 		{
 			"name": "scratchpads",
