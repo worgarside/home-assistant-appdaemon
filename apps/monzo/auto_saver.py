@@ -228,7 +228,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
             amount, bd = saving
 
             savings[category] = amount
-            if bd is not None:
+            if bd:
                 breakdown[category] = bd
 
         savings["Minimum"] = self.auto_save_minimum
