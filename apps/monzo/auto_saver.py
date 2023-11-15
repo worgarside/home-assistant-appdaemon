@@ -239,7 +239,8 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         attributes: dict[str, float | str] = {k: v / 100 for k, v in savings.items()}
 
-        attributes["Breakdown"] = dumps(breakdown)
+        if breakdown:
+            attributes["Breakdown"] = dumps(breakdown)
 
         self.call_service(
             "var/set",
