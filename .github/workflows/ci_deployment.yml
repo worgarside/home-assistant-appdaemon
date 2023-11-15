@@ -31,7 +31,7 @@ jobs:
     with:
       build-branch: ${{ github.ref }}
       build-type: ''
-      deploy-to: ''
+      deploy-to: submodule:worgarside/home-assistant/appdaemon
       node-build-directory: ''
       path-to-__version__-file: ''
       python-version: '3.11'
