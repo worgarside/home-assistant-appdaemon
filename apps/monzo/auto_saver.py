@@ -24,6 +24,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
     """Automatically save money based on certain criteria."""
 
     AUTO_SAVE_VARIABLE_ID: Final[str] = "var.auto_save_amount"
+    MULTISPACE_PATTERN: Final[Pattern[str]] = re_compile(r"\s+")
 
     _auto_save_minimum: Entity
     _debit_transaction_percentage: Entity
@@ -146,14 +147,40 @@ class AutoSaver(Hass):  # type: ignore[misc]
         if self.naughty_transaction_pattern is None:
             return 0, ["No pattern set!"]
 
-        naughty_txs = self.naughty_transactions
+        amex_subtotal = 0.0  # +GBP
+        monzo_subtotal = 0  # -pence
 
-        amount = sum(transaction.amount for transaction in naughty_txs)  # + GBP
+        breakdown = []
 
-        return (
-            int(self.naughty_transaction_percentage * amount * 100),  # pence
-            [f"£{tx.amount} @ {tx.description}" for tx in naughty_txs],
+        for tx in self.amex_transactions:
+            if (
+                self.naughty_transaction_pattern.search(tx.description)
+                and tx.amount > 0
+            ):  # GBP
+                amex_subtotal += tx.amount
+
+                breakdown.append(
+                    f"£{tx.amount:.2f} @ {self.MULTISPACE_PATTERN.sub(' ', tx.description)}",
+                )
+
+        for tx in self.monzo_transactions:
+            if (
+                self.naughty_transaction_pattern.search(tx.description)
+                and tx.amount < 0
+            ):  # pence
+                monzo_subtotal += tx.amount
+
+                breakdown.append(
+                    f"£{-tx.amount/100:.2f} @ {self.MULTISPACE_PATTERN.sub(' ', tx.description)}",
+                )
+
+        # subtract because Monzo transactions are negative in value
+        amount_total = int(
+            ((amex_subtotal * 100) - monzo_subtotal)
+            * self.naughty_transaction_percentage,
         )
+
+        return amount_total, breakdown
 
     def _get_round_up_pence(self) -> tuple[int, None]:
         """Sum the round-up amounts from a list of transactions.
@@ -370,22 +397,6 @@ class AutoSaver(Hass):  # type: ignore[misc]
     def naughty_transaction_percentage(self) -> float:
         """Get the percentage of naughty transactions to save."""
         return float(self._naughty_transaction_percentage.get_state()) / 100
-
-    @property
-    def naughty_transactions(self) -> list[TrueLayerTransaction]:
-        """Get the list of naughty transactions on my Amex card.
-
-        Only transactions since the last auto-save are returned.
-        """
-        if self.naughty_transaction_pattern is None:
-            return []
-
-        return [
-            tx
-            for tx in self.amex_transactions
-            if self.naughty_transaction_pattern.search(tx.description)
-            and tx.amount > 0  # GBP
-        ]
 
     @property
     def monzo_transactions(self) -> list[MonzoTransaction]:
