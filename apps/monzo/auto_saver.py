@@ -132,7 +132,8 @@ class AutoSaver(Hass):  # type: ignore[misc]
         breakdown = []
 
         for tx in self.monzo_transactions:
-            if tx.amount <= 0:
+            # Ignore credit transactions or pot withdrawals
+            if tx.amount <= 0 or tx.description.startswith("pot_"):
                 continue
 
             amount += tx.amount
