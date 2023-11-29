@@ -9,6 +9,7 @@ repos:
     rev: 1.0.1
     hooks:
       - id: sync-additional-dependencies
+        language_version: python3.11
 
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.15.0
@@ -98,7 +99,9 @@ repos:
           - --strict
           - --show-error-codes
         additional_dependencies:
+          - pydantic==2.5.2
           - pygithub==2.1.1
+          - tzlocal==5.2
           - wg-utilities==5.6.1
 
   - repo: local
@@ -106,6 +109,7 @@ repos:
       - id: pylint
         name: pylint
         entry: pylint
+        language_version: python3.11
         args:
           - --disable=fixme
           - --enable=useless-suppression

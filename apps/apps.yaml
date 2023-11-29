@@ -1,5 +1,11 @@
 ---
 
+# Cosmo
+
+cosmo_monitor:
+  module: cosmo_monitor
+  class: CosmoMonitor
+
 # Log Processor
 
 log_processor:
