@@ -4,7 +4,7 @@ appdaemon:
   latitude: !secret latitude
   longitude: !secret longitude
   elevation: 9
-  time_zone: Europe/Amsterdam
+  time_zone: Europe/London
   plugins:
     HASS:
       type: hass
