@@ -15,7 +15,7 @@ REPO_NAME: Final[str] = "worgarside/home-assistant"
 class VersionFileCommitter(Hass):  # type: ignore[misc]
     """AppDaemon app to commit the version file to GitHub."""
 
-    VERSION_FILE_PATH: Final[Path] = Path("/config/.HA_VERSION")
+    VERSION_FILE_PATH: Final[Path] = Path("/homeassistant/.HA_VERSION")
 
     def initialize(self) -> None:
         """Initialize the app."""
