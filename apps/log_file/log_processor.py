@@ -35,7 +35,7 @@ class LogProcessor(Hass):  # type: ignore[misc]
 
     warehouse_handler: WarehouseHandler
 
-    LOG_FILE: Final[Path] = Path("/config/home-assistant.log")
+    LOG_FILE: Final[Path] = Path("/homeassistant/home-assistant.log")
 
     def initialize(self) -> None:
         """Initialize the app."""
