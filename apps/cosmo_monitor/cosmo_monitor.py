@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -77,24 +78,29 @@ class Room(StateValue):
     UNAVAILABLE = UNAVAILABLE
 
 
-S = TypeVar("S", bound=StateValue)
+S = TypeVar("S", bound=StateValue | float)
 
 
 class BaseStateTypeInfo(TypedDict, Generic[S]):
     """Information about a state type."""
 
-    start_time: datetime
-    end_time: datetime
     state: S
 
 
-class StateTypeInfo(BaseStateTypeInfo[S]):
-    """Information about a state type."""
+class HassStateTypeInfo(BaseStateTypeInfo[S]):
+    """Information about a state type, straight from Home Assistant."""
 
+    attributes: dict[str, float | int | str]
     entity_id: str
-    duration: timedelta
     last_changed: str
     last_updated: str
+
+
+class StateTypeInfo(BaseStateTypeInfo[S]):
+    """Information about a state type, formatted for use in this app."""
+
+    start_time: datetime
+    end_time: datetime
 
 
 class State(BaseModel, Generic[S]):
@@ -104,7 +110,7 @@ class State(BaseModel, Generic[S]):
     end_time: datetime
     state: S  # StrEnum
 
-    model_config: ClassVar[ConfigDict] = {"extra": "ignore"}
+    model_config: ClassVar[ConfigDict] = {"extra": "forbid"}
 
     @computed_field  # type: ignore[misc]
     @property
@@ -120,10 +126,9 @@ class State(BaseModel, Generic[S]):
 class _History(BaseModel, Generic[S]):
     """A history of a state entity."""
 
-    entity_id: str
+    ENTITY_ID: ClassVar[str]
+
     states: list[State[S]]
-    lower_limit: datetime
-    upper_limit: datetime
 
     @computed_field  # type: ignore[misc]
     @property
@@ -131,12 +136,90 @@ class _History(BaseModel, Generic[S]):
         """Return the total duration of the history."""
         return self.upper_limit - self.lower_limit
 
+    @computed_field  # type: ignore[misc]
+    @property
+    def lower_limit(self) -> datetime:
+        """Return the lower limit of the history."""
+        return self.states[0].start_time
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def upper_limit(self) -> datetime:
+        """Return the upper limit of the history."""
+        return self.states[-1].end_time
+
+    @classmethod
+    def _get_hass_state_history(
+        cls: type[Self],
+        *,
+        hass: Hass,
+        lower_limit: datetime,
+        upper_limit: datetime | None = None,
+    ) -> tuple[datetime, datetime, list[HassStateTypeInfo[S]]]:
+        lower_limit = lower_limit.astimezone(UTC).replace(tzinfo=None)
+
+        end_time = (
+            upper_limit.astimezone(UTC).replace(tzinfo=None)
+            if upper_limit
+            else hass.datetime()
+        )
+
+        hass_history = hass.get_history(
+            entity_id=cls.ENTITY_ID,
+            start_time=lower_limit.astimezone(UTC).replace(tzinfo=None),
+            end_time=end_time,
+        )
+
+        if not hass_history or len(hass_history) != 1:
+            raise ValueError(  # noqa: TRY003
+                "Unexpected response from Home Assistant"
+                f" history API: {hass_history!r}",
+            )
+
+        state_history: list[HassStateTypeInfo[S]] = sorted(  # Oldest -> newest
+            hass_history[0],
+            key=lambda x: x["last_updated"],
+        )
+
+        if state_history:
+            hass.log(
+                "Found %i states for %s between %s and %s",
+                len(state_history),
+                cls.ENTITY_ID,
+                state_history[0]["last_changed"],
+                upper_limit or "now",
+            )
+            hass.log("First five items: %s", dumps(state_history, default=str))
+        else:
+            hass.log(
+                "No states found for %s between %s and %s",
+                cls.ENTITY_ID,
+                lower_limit,
+                upper_limit or "now",
+            )
+
+        return lower_limit, end_time, state_history
+
+    @classmethod
+    def _get_previous_state(
+        cls: type[Self],
+        *,
+        state_history: list[HassStateTypeInfo[S]],
+        remove_unavailable_states: bool = True,
+    ) -> HassStateTypeInfo[S] | None:
+        """Return the previous state from the state history."""
+        if remove_unavailable_states:
+            for s in reversed(state_history):
+                if s["state"] != UNAVAILABLE:
+                    return s
+
+        return state_history[-1] if state_history else None
+
     @classmethod
     def from_state_history(
         cls: type[Self],
-        entity_id: str,
-        /,
         hass: Hass,
+        /,
         *,
         lower_limit: datetime,
         upper_limit: datetime | None = None,
@@ -148,7 +231,6 @@ class _History(BaseModel, Generic[S]):
         If `upper_limit` is None, then the current time is used.
 
         Args:
-            entity_id: The entity ID to get the history of.
             hass: The Home Assistant instance.
             lower_limit: The lower limit of the history.
             upper_limit: The upper limit of the history. If None, the current time is used.
@@ -158,96 +240,95 @@ class _History(BaseModel, Generic[S]):
         Returns:
             History of the entity.
         """
-        lower_limit = lower_limit.astimezone(UTC).replace(tzinfo=None)
-
-        end_time = (
-            upper_limit.astimezone(UTC).replace(tzinfo=None)
-            if upper_limit
-            else datetime.utcnow()
+        lower_limit, end_time, state_history = cls._get_hass_state_history(
+            hass=hass,
+            lower_limit=lower_limit,
+            upper_limit=upper_limit,
         )
 
-        hass_history = hass.get_history(
-            entity_id=entity_id,
-            start_time=lower_limit.astimezone(UTC).replace(tzinfo=None),
-            end_time=end_time,
-        )
-
-        if not hass_history or len(hass_history) != 1:
-            raise ValueError(  # noqa: TRY003
-                "Unexpected response from Home Assistant"
-                f" history API: {hass_history!r}",
-            )
-
-        state_history: list[StateTypeInfo[S]] = sorted(  # Oldest -> newest
-            hass_history[0],
-            key=lambda x: x["last_updated"],
-        )
-
-        del hass_history
-
-        hass.log(
-            "Found %i states for %s between %s and %s",
-            len(state_history),
-            entity_id,
-            lower_limit,
-            upper_limit or "now",
-        )
-
-        hass.log("First five items: %s", dumps(state_history[:5], default=str))
-
-        # Descending order (newest -> oldest)
-        merged_states: list[BaseStateTypeInfo[S]] = []
+        merged_states: list[StateTypeInfo[S]] = []
         while state_history:
             state = state_history.pop()  # Most recent state
 
+            next_state = merged_states[-1] if merged_states else None
+
             if (
-                last_changed := datetime.fromisoformat(state["last_changed"])
-                .astimezone(UTC)
-                .replace(tzinfo=None)
-            ) > end_time or (
-                remove_unavailable_states and state["state"] == UNAVAILABLE
+                (
+                    last_changed := datetime.fromisoformat(state["last_changed"])
+                    .astimezone(UTC)
+                    .replace(tzinfo=None)
+                )
+                > end_time
+                or (remove_unavailable_states and state["state"] == UNAVAILABLE)
+                or cls.filter_current_state_out(
+                    prev_state=cls._get_previous_state(
+                        state_history=state_history,
+                        remove_unavailable_states=remove_unavailable_states,
+                    ),
+                    curr_state=state,
+                    next_state=next_state,
+                    hass=hass,
+                )
             ):
                 # Ignore this state because it's after the upper limit (or unavailable and unavailable
                 # states should be removed)
                 continue
 
-            if lower_limit_broken := last_changed < lower_limit:
-                # Bring last changed forward to lower limit if it's before it
-                state["start_time"] = lower_limit
-            else:
-                state["start_time"] = last_changed
+            # Bring last changed forward to lower limit if it's before it
+            start_time = max(lower_limit, last_changed)
 
-            if not merged_states:
-                # If this is the first iteration/last state
-                state["end_time"] = end_time
-            elif (next_state := merged_states[-1])["state"] == state["state"]:
-                next_state["start_time"] = state["start_time"]
-                continue
-            else:
+            # If this is not the first iteration/last state
+            if next_state is not None:
+                if next_state["state"] == state["state"]:
+                    # If the previous iteration/next state has the same state, then set the start time to
+                    # the start time of the previous iteration/next state
+                    next_state["start_time"] = start_time
+                    continue
+
                 # Otherwise, set the end time to the start time of the previous iteration/next state
-                state["end_time"] = next_state["start_time"]
+                end_time = next_state["start_time"]
 
             merged_states.append(
                 {
-                    "start_time": state["start_time"],
-                    "end_time": state["end_time"],
+                    "start_time": start_time,
+                    "end_time": end_time,
                     "state": state["state"],
                 },
             )
 
             # If this state broke the lower limit (for the first time), then it has been rounded up and the
             # loop should be broken
-            if lower_limit_broken:
+            if last_changed < lower_limit:
                 break
 
         # merged_states is already in reverse order, so only flip if reverse is False
         return cls.model_validate(
             {
-                "entity_id": entity_id,
                 "states": merged_states if reverse else merged_states[::-1],
                 "lower_limit": lower_limit,
                 "upper_limit": end_time,
             },
+        )
+
+    @staticmethod
+    def filter_current_state_out(
+        *,
+        prev_state: HassStateTypeInfo[S] | None,
+        curr_state: HassStateTypeInfo[S],
+        next_state: StateTypeInfo[S] | None,
+        hass: Hass | None = None,
+    ) -> bool:
+        _ = prev_state, curr_state, next_state, hass
+        return False
+
+    def state_at(self, dttm: datetime, /) -> S:
+        """Return the state at the given datetime."""
+        for state in self.states:
+            if state.start_time <= dttm < state.end_time:
+                return state.state
+
+        raise ValueError(  # noqa: TRY003
+            f"No state found for {self.ENTITY_ID} at {dttm!s}",
         )
 
     def __getitem__(self, index: int) -> State[S]:
@@ -260,16 +341,79 @@ class _History(BaseModel, Generic[S]):
         return iter(self.states)
 
 
+class AreaCleanedHistory(_History[float]):
+    """A history of the vacuum's cleaned area."""
+
+    ENTITY_ID = "sensor.cosmo_cleaned_area"
+
+    @staticmethod
+    def filter_current_state_out(
+        *,
+        prev_state: HassStateTypeInfo[float] | None,
+        curr_state: HassStateTypeInfo[float],
+        next_state: StateTypeInfo[float] | None,
+        hass: Hass | None = None,
+    ) -> bool:
+        """Remove (usually) the first state of a cleaning session.
+
+        The first state can be from the previous clean, in which case the change to 0.0 is the
+        start of the current cleaning session.
+        """
+        _ = hass
+
+        return (
+            prev_state is None
+            and next_state is not None
+            and float(curr_state["state"]) > 0  # Previous total area
+            and float(next_state["state"]) == 0  # The reset
+        )
+
+
 class CosmoStateHistory(_History[CosmoState]):
     """A history of the vacuum's state."""
+
+    ENTITY_ID = "vacuum.cosmo"
 
 
 class CurrentRoomHistory(_History[Room]):
     """A history of the vacuum's current room."""
 
+    ENTITY_ID = "sensor.cosmo_current_room"
+
+    @staticmethod
+    def filter_current_state_out(
+        *,
+        prev_state: HassStateTypeInfo[Room] | None,
+        curr_state: HassStateTypeInfo[Room],
+        next_state: StateTypeInfo[Room] | None,
+        hass: Hass | None = None,
+    ) -> bool:
+        """Filter out rooms Cosmo was in for < 10 seconds if the same room was visited either side.
+
+        He was likely on a doorway and went too far.
+        """
+        _ = hass
+
+        return (
+            prev_state is not None
+            and next_state is not None
+            and prev_state["state"] == next_state["state"]
+            and (
+                (
+                    next_state["start_time"]
+                    - datetime.fromisoformat(curr_state["last_updated"])
+                    .astimezone(UTC)
+                    .replace(tzinfo=None)
+                )
+                < timedelta(seconds=20)
+            )
+        )
+
 
 class TaskStatusHistory(_History[TaskStatus]):
     """A history of the vacuum's task status."""
+
+    ENTITY_ID = "sensor.cosmo_task_status"
 
 
 class CosmoMonitor(Hass):  # type: ignore[misc]
@@ -279,25 +423,12 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
         """Initialize the app."""
         # self.listen_state(self.go, "sensor.cosmo_task_status")   # noqa: ERA001
 
-        clean_start_time, clean_end_time = self._get_cleaning_period()
-
-        self.log("Cleaning period: %s to %s", clean_start_time, clean_end_time)
-
-        room_history = CurrentRoomHistory.from_state_history(
-            "sensor.cosmo_current_room",
-            hass=self,
-            lower_limit=clean_start_time,
-            upper_limit=clean_end_time,
-        )
-
-        self.log(
-            "Room history: %s",
-            dumps(
-                room_history,
-                default=lambda x: (
-                    x.model_dump() if isinstance(x, BaseModel) else str(x)
-                ),
-            ),
+        self.go(
+            "sensor.cosmo_task_status",
+            "state",
+            TaskStatus.ROOM_CLEANING,
+            TaskStatus.COMPLETED,
+            {},
         )
 
     def _get_cleaning_period(self) -> tuple[datetime, datetime]:
@@ -306,18 +437,10 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
         Paused states are ignored when between two cleaning states.
         """
         # Start 6 hours ago because there's no way the battery will last that long
-        six_hours_ago = datetime(
-            2023,
-            11,
-            26,
-            12,
-            25,
-            tzinfo=UTC,
-        )  # self.datetime(tz=UTC) - timedelta(hours=6)
+        six_hours_ago = self.datetime() - timedelta(hours=6)
 
         task_history = TaskStatusHistory.from_state_history(
-            "sensor.cosmo_task_status",
-            hass=self,
+            self,
             lower_limit=six_hours_ago,
             reverse=True,
         )
@@ -336,25 +459,18 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
         else:
             raise ValueError("No cleaning task status found")  # noqa: TRY003
 
-        self.log("Initial cleaning period: %s to %s", clean_start_time, clean_end_time)
-
-        # Trim the "returning to dock" time off the end
         cosmo_history = CosmoStateHistory.from_state_history(
-            "vacuum.cosmo",
-            hass=self,
+            self,
             lower_limit=clean_start_time,
             upper_limit=clean_end_time,
             reverse=True,
         )
 
-        # Work backwards through the vacuum entity's states, once a returning to dock state is found,
-        # adjust the clean_end_time to be the start of that state
+        # Work backwards through the vacuum entity's states, once a cleaning state is found,
+        # adjust the clean_end_time to be the end of that state
         for cosmo_state in cosmo_history:
-            if cosmo_state.state == CosmoState.RETURNING_TO_DOCK:
-                self.log(
-                    f"Found returning to dock state at {cosmo_state.start_time!s}: {cosmo_state.model_dump_json()}",
-                )
-                clean_end_time = cosmo_state.start_time
+            if cosmo_state.state == CosmoState.CLEANING:
+                clean_end_time = cosmo_state.end_time
                 break
 
         return clean_start_time, clean_end_time
@@ -380,11 +496,25 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
 
         clean_start_time, clean_end_time = self._get_cleaning_period()
 
-        _ = CurrentRoomHistory.from_state_history(
-            "sensor.cosmo_current_room",
-            hass=self,
+        room_history = CurrentRoomHistory.from_state_history(
+            self,
             lower_limit=clean_start_time,
             upper_limit=clean_end_time,
         )
 
-        # Update the input datetimes
+        # Get the area cleaned in that time
+        area_cleaned_history = AreaCleanedHistory.from_state_history(
+            self,
+            lower_limit=clean_start_time,
+            upper_limit=clean_end_time,
+        )
+
+        area_cleaned_by_room: defaultdict[Room, float] = defaultdict(float)
+        prev_value = None
+
+        for area_state in area_cleaned_history:
+            if area_state.state not in (None, 0.0, prev_value):
+                room = room_history.state_at(area_state.start_time)
+                area_cleaned_by_room[room] += area_state.state - (prev_value or 0)
+
+            prev_value = area_state.state
