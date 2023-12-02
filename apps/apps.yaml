@@ -1,10 +1,18 @@
 ---
 
-# Log Processor
+# AppDaemon Updater
 
 appdaemon_updater:
   module: appdaemon_updater
   class: Updater
+
+# Robot Vacuum
+
+cosmo_vacuum:
+  module: cosmo_monitor
+  class: CosmoMonitor
+
+# Log Processor
 
 log_processor:
   module: log_processor

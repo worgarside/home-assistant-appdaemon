@@ -421,15 +421,7 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
 
     def initialize(self) -> None:
         """Initialize the app."""
-        # self.listen_state(self.go, "sensor.cosmo_task_status")   # noqa: ERA001
-
-        self.go(
-            "sensor.cosmo_task_status",
-            "state",
-            TaskStatus.ROOM_CLEANING,
-            TaskStatus.COMPLETED,
-            {},
-        )
+        self.listen_state(self.log_cleaning_time, "sensor.cosmo_task_status")
 
     def _get_cleaning_period(self) -> tuple[datetime, datetime]:
         """Get the start and end times of the last cleaning period.
@@ -475,7 +467,7 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
 
         return clean_start_time, clean_end_time
 
-    def go(
+    def log_cleaning_time(
         self,
         entity: Literal["sensor.cosmo_task_status"],
         attribute: Literal["state"],
