@@ -2,6 +2,10 @@
 
 # Log Processor
 
+appdaemon_updater:
+  module: appdaemon_updater
+  class: AppDaemonUpdater
+
 log_processor:
   module: log_processor
   class: LogProcessor
