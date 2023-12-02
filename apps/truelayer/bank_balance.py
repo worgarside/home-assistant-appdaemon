@@ -101,8 +101,8 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
             else self.client.get_account_by_id
         )
 
-        list_entities = (
-            self.client.list_cards
+        list_entities: Callable[[], list[Account | Card]] = (
+            self.client.list_cards  # type: ignore[assignment]
             if entity_type == EntityType.CARD
             else self.client.list_accounts
         )
@@ -127,7 +127,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
                 )
                 continue
 
-            self.entities[entity_type][entity_ref] = entity
+            self.entities[entity_type][entity_ref] = entity  # type: ignore[assignment]
 
         if self.entities[entity_type]:
             callback = self._callback_factory(entity_type)
