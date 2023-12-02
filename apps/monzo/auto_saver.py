@@ -1,6 +1,7 @@
 """Automatically save money based on certain criteria."""
 from __future__ import annotations
 
+from collections.abc import Callable, Collection
 from datetime import datetime, timedelta
 from json import dumps
 from pathlib import Path
@@ -153,26 +154,26 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         breakdown = []
 
-        for tx in self.amex_transactions:
+        for atx in self.amex_transactions:
             if (
-                self.naughty_transaction_pattern.search(tx.description)
-                and tx.amount > 0
+                self.naughty_transaction_pattern.search(atx.description)
+                and atx.amount > 0
             ):  # GBP
-                amex_subtotal += tx.amount
+                amex_subtotal += atx.amount
 
                 breakdown.append(
-                    f"£{tx.amount:.2f} @ {self.MULTISPACE_PATTERN.sub(' ', tx.description)}",
+                    f"£{atx.amount:.2f} @ {self.MULTISPACE_PATTERN.sub(' ', atx.description)}",
                 )
 
-        for tx in self.monzo_transactions:
+        for mtx in self.monzo_transactions:
             if (
-                self.naughty_transaction_pattern.search(tx.description)
-                and tx.amount < 0
+                self.naughty_transaction_pattern.search(mtx.description)
+                and mtx.amount < 0
             ):  # pence
-                monzo_subtotal += tx.amount
+                monzo_subtotal += mtx.amount
 
                 breakdown.append(
-                    f"£{-tx.amount/100:.2f} @ {self.MULTISPACE_PATTERN.sub(' ', tx.description)}",
+                    f"£{-mtx.amount/100:.2f} @ {self.MULTISPACE_PATTERN.sub(' ', mtx.description)}",
                 )
 
         # subtract because Monzo transactions are negative in value
@@ -314,7 +315,12 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
     def update_transaction_records(self) -> None:
         """Get the newest transactions from Amex/Monzo."""
-        for transactions, timestamp_attr, sort_by, get_transactions in (
+        transactions: Collection[TrueLayerTransaction | MonzoTransaction]
+        get_transactions: Callable[
+            ...,
+            Collection[TrueLayerTransaction | MonzoTransaction],
+        ]
+        for transactions, timestamp_attr, sort_by, get_transactions in (  # type: ignore[assignment]
             (
                 self._amex_transactions,
                 "timestamp",
@@ -338,9 +344,9 @@ class AutoSaver(Hass):  # type: ignore[misc]
                 + timedelta(seconds=1)
             )
 
-            recent_transactions = get_transactions(from_datetime=from_datetime)  # type: ignore[operator]
+            recent_transactions = get_transactions(from_datetime=from_datetime)
 
-            transactions.extend(recent_transactions)
+            transactions.extend(recent_transactions)  # type: ignore[attr-defined]
 
             self.log(
                 "Found %s new transactions (%i total)",

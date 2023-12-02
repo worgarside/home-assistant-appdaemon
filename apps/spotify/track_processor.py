@@ -262,7 +262,7 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
             get_best_match_only=True,
         )
 
-        if matched_track is not None:
+        if isinstance(matched_track, Track):
             self.log(
                 "Track found for search term '%s' with ID %s",
                 search_term,
