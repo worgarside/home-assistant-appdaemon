@@ -4,7 +4,7 @@
 
 appdaemon_updater:
   module: appdaemon_updater
-  class: AppDaemonUpdater
+  class: Updater
 
 log_processor:
   module: log_processor

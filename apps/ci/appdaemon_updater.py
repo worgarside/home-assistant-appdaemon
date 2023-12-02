@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from os import environ
 from typing import Any, ClassVar, Literal
 
 from appdaemon.entity import Entity  # type: ignore[import-not-found]
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from git import GitCommandError, Repo
+
+environ[
+    "GIT_SSH_COMMAND"
+] = "ssh -o StrictHostKeyChecking=no -i /homeassistant/.ssh/github"
 
 
 class Updater(Hass):  # type: ignore[misc]
@@ -31,12 +36,24 @@ class Updater(Hass):  # type: ignore[misc]
 
     def update_variables(self, _: dict[str, Any] | None = None) -> None:
         """Update the variables with the current AppDaemon ref and branch."""
-        self.current_branch = self.REPO.active_branch.name
+        try:
+            current_branch = self.REPO.active_branch.name
+        except TypeError:
+            current_branch = "HEAD"
 
         try:
-            self.current_ref = self.REPO.git.describe(tags=True, exact_match=True)
+            current_ref = self.REPO.git.describe(tags=True, exact_match=True)
         except GitCommandError:
-            self.current_ref = self.REPO.head.commit.hexsha[:7]
+            current_ref = self.REPO.head.commit.hexsha[:7]
+
+        self.current_branch = current_branch
+        self.current_ref = current_ref
+
+        self.log(
+            "Current AppDaemon ref: %s | Current AppDaemon branch: %s",
+            current_ref,
+            current_branch,
+        )
 
     def get_latest_release(
         self,
@@ -50,21 +67,29 @@ class Updater(Hass):  # type: ignore[misc]
         del entity, attribute, kwargs
 
         if old in (new, "unavailable") or not old:
+            self.log("Skipping update to %s", new)
             return
+
+        self.log("Updating to %s", new)
 
         self.REPO.git.fetch("--all", "--tags", "--prune")
 
         for tag in self.REPO.tags:
             if tag.name == new:
+                self.log(f"Updating to {new}")
+
                 self.REPO.git.add(A=True)
 
                 self.REPO.git.stash(
                     "save",
-                    f"Stashing changes before updating to {new} | {self.datetime()!s}",
+                    stash_msg := f"Stashing changes before updating to {new} | {self.datetime()!s}",
                 )
+
+                self.log("Stashed changes: %s", stash_msg)
 
                 try:
                     self.REPO.git.checkout(new)
+                    self.log("Checked out %s", new)
                 except GitCommandError as exc:
                     self.error(f"Error checking out {new}: {exc!s}")
                     raise
