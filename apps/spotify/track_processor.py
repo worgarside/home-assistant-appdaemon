@@ -62,7 +62,7 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
         self.spotify = SpotifyClient(
             client_id=self.args["client_id"],
             client_secret=self.args["client_secret"],
-            creds_cache_dir=Path("/config/.wg-utilities/oauth_credentials"),
+            creds_cache_dir=Path("/homeassistant/.wg-utilities/oauth_credentials"),
             use_existing_credentials_only=True,
         )
 

@@ -17,7 +17,7 @@ from wg_utilities.clients.truelayer import Bank, Card
 from wg_utilities.clients.truelayer import Transaction as TrueLayerTransaction
 from wg_utilities.loggers import add_warehouse_handler
 
-CACHE_DIR = Path("/config/.wg-utilities/oauth_credentials")
+CACHE_DIR = Path("/homeassistant/.wg-utilities/oauth_credentials")
 
 
 class AutoSaver(Hass):  # type: ignore[misc]
@@ -91,7 +91,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
         self.spotify_client = SpotifyClient(
             client_id=self.args["spotify_client_id"],
             client_secret=self.args["spotify_client_secret"],
-            creds_cache_dir=Path("/config/.wg-utilities/oauth_credentials"),
+            creds_cache_dir=Path("/homeassistant/.wg-utilities/oauth_credentials"),
             use_existing_credentials_only=True,
         )
 
