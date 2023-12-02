@@ -8,15 +8,12 @@ from json import dumps
 from pathlib import Path
 from re import compile as compile_regex
 from re import sub
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import Any, Literal, Self
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from wg_utilities.clients import SpotifyClient
+from wg_utilities.clients.spotify import Playlist, Track
 from wg_utilities.loggers import add_warehouse_handler
-
-if TYPE_CHECKING:
-    from wg_utilities.clients.spotify import Playlist, Track
-
 
 DECADE_PATTERN = compile_regex(r"^\d{3}0s$")
 _MONTH_LIST = "|".join(
