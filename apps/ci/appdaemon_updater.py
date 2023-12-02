@@ -105,11 +105,11 @@ class Updater(Hass):  # type: ignore[misc]
         return str(self._current_ref.get_state())
 
     @current_ref.setter
-    def current_ref(self, new: str, /) -> None:
+    def current_ref(self, value: str, /) -> None:
         self.call_service(
             "var/set",
             entity_id=self._current_ref.entity_id,
-            value=new,
+            value=value,
             force_update=True,
         )
 
@@ -119,10 +119,10 @@ class Updater(Hass):  # type: ignore[misc]
         return str(self._current_branch.get_state())
 
     @current_branch.setter
-    def current_branch(self, new: str, /) -> None:
+    def current_branch(self, value: str, /) -> None:
         self.call_service(
             "var/set",
             entity_id=self._current_branch.entity_id,
-            value=new,
+            value=value,
             force_update=True,
         )
