@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -47,6 +46,7 @@ class TaskStatus(StateValue):
 
     UNAVAILABLE = UNAVAILABLE
 
+    @property
     def is_room_cleaning(self) -> bool:
         """Return whether the task status is a room cleaning status."""
         return self in (
@@ -55,6 +55,7 @@ class TaskStatus(StateValue):
             TaskStatus.ZONE_CLEANING,
         )
 
+    @property
     def is_paused(self) -> bool:
         """Return whether the task status is a paused status."""
         return self in (
@@ -68,6 +69,7 @@ class TaskStatus(StateValue):
 class Room(StateValue):
     """A room that Cosmo can vacuum."""
 
+    BATHROOM = "Bathroom"
     BEDROOM = "Bedroom"
     EN_SUITE = "En-Suite"
     HALLWAY = "Hallway"
@@ -76,6 +78,24 @@ class Room(StateValue):
     OFFICE = "Office"
 
     UNAVAILABLE = UNAVAILABLE
+
+    @property
+    def input_datetime_name(self) -> str:
+        """Return the input_datetime name for the room."""
+        return f"input_datetime.cosmo_last_{self.name.lower()}_clean"
+
+    @property
+    def minimum_clean_area(self) -> float:
+        """Return the minimum area that should be cleaned before the room can be considered complete."""
+        return {
+            Room.BATHROOM: 3,
+            Room.BEDROOM: 6,
+            Room.EN_SUITE: 2,
+            Room.HALLWAY: 7,
+            Room.KITCHEN: 5,
+            Room.LOUNGE: 8,
+            Room.OFFICE: 5,
+        }[self]
 
 
 S = TypeVar("S", bound=StateValue | float)
@@ -321,11 +341,11 @@ class _History(BaseModel, Generic[S]):
         _ = prev_state, curr_state, next_state, hass
         return False
 
-    def state_at(self, dttm: datetime, /) -> S:
+    def state_at(self, dttm: datetime, /) -> State[S]:
         """Return the state at the given datetime."""
         for state in self.states:
             if state.start_time <= dttm < state.end_time:
-                return state.state
+                return state
 
         raise ValueError(  # noqa: TRY003
             f"No state found for {self.ENTITY_ID} at {dttm!s}",
@@ -416,12 +436,57 @@ class TaskStatusHistory(_History[TaskStatus]):
     ENTITY_ID = "sensor.cosmo_task_status"
 
 
+class AreaCleanedByRoom(TypedDict):
+    """The area cleaned in a room."""
+
+    area: float
+    end_time: datetime
+
+
 class CosmoMonitor(Hass):  # type: ignore[misc]
     """Monitors the Cosmo vacuum's cleaning history."""
 
     def initialize(self) -> None:
         """Initialize the app."""
         self.listen_state(self.log_cleaning_time, "sensor.cosmo_task_status")
+
+    def _get_area_cleaned_by_room(
+        self,
+        *,
+        room_history: CurrentRoomHistory,
+        area_cleaned_history: AreaCleanedHistory,
+    ) -> dict[Room, AreaCleanedByRoom]:
+        """Return the area cleaned in each room."""
+        area_cleaned_by_room: dict[Room, AreaCleanedByRoom] = {}
+
+        prev_value = None
+
+        for area_state in area_cleaned_history:
+            if area_state.state not in (None, 0.0, prev_value):
+                room_state = room_history.state_at(area_state.start_time)
+
+                area_cleaned_by_room.setdefault(
+                    room_state.state,
+                    {
+                        "area": 0.0,
+                        "end_time": area_state.end_time,
+                    },
+                )
+
+                area_cleaned_by_room[room_state.state]["area"] += area_state.state - (
+                    prev_value or 0
+                )
+
+                area_cleaned_by_room[room_state.state]["end_time"] = area_state.end_time
+
+            prev_value = area_state.state
+
+        self.log(
+            "Area cleaned by room: %s",
+            dumps(area_cleaned_by_room, default=str),
+        )
+
+        return area_cleaned_by_room
 
     def _get_cleaning_period(self) -> tuple[datetime, datetime]:
         """Get the start and end times of the last cleaning period.
@@ -442,10 +507,10 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
         # non-cleaning/non-paused task is found
         clean_end_time = None
         for task_status_state in task_history:
-            if task_status_state.state.is_room_cleaning():
+            if task_status_state.state.is_room_cleaning:
                 clean_end_time = clean_end_time or task_status_state.end_time
                 clean_start_time = task_status_state.start_time
-            elif not task_status_state.state.is_paused() and clean_end_time is not None:
+            elif not task_status_state.state.is_paused and clean_end_time is not None:
                 # Neither cleaning nor paused, and a cleaning period has been found
                 break
         else:
@@ -481,7 +546,7 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
         new, old = TaskStatus(new), TaskStatus(old)
 
         # Check it's gone from some type of room cleaning to completed
-        if new != TaskStatus.COMPLETED or not old.is_room_cleaning():
+        if new != TaskStatus.COMPLETED or not old.is_room_cleaning:
             return
 
         # Get list of rooms cleaned in that time
@@ -501,12 +566,27 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
             upper_limit=clean_end_time,
         )
 
-        area_cleaned_by_room: defaultdict[Room, float] = defaultdict(float)
-        prev_value = None
+        area_cleaned_by_room = self._get_area_cleaned_by_room(
+            room_history=room_history,
+            area_cleaned_history=area_cleaned_history,
+        )
 
-        for area_state in area_cleaned_history:
-            if area_state.state not in (None, 0.0, prev_value):
-                room = room_history.state_at(area_state.start_time)
-                area_cleaned_by_room[room] += area_state.state - (prev_value or 0)
-
-            prev_value = area_state.state
+        for room, room_stats in area_cleaned_by_room.items():
+            if (area_cleaned := room_stats["area"]) >= room.minimum_clean_area:
+                self.log(
+                    "%s has been cleaned enough (%.2f m²)",
+                    room,
+                    area_cleaned,
+                )
+                self.call_service(
+                    "input_datetime/set_datetime",
+                    entity_id=room.input_datetime_name,
+                    datetime=room_stats["end_time"].isoformat(),
+                )
+            else:
+                self.log(
+                    "%s has not been cleaned enough (%.2f m² cleaned, %.2f m² required)",
+                    room,
+                    area_cleaned,
+                    room.minimum_clean_area,
+                )
