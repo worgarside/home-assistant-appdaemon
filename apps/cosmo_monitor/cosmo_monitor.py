@@ -450,6 +450,15 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
         """Initialize the app."""
         self.listen_state(self.log_cleaning_time, "sensor.cosmo_task_status")
 
+        # Call once when app loads (in case of a bugfix for a prior cleaning session)
+        self.log_cleaning_time(
+            entity="sensor.cosmo_task_status",
+            attribute="state",
+            old=TaskStatus.COMPLETED,
+            new=TaskStatus.ROOM_CLEANING,
+            kwargs={},
+        )
+
     def _get_area_cleaned_by_room(
         self,
         *,
@@ -546,7 +555,9 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
         new, old = TaskStatus(new), TaskStatus(old)
 
         # Check it's gone from some type of room cleaning to completed
-        if new != TaskStatus.COMPLETED or not old.is_room_cleaning:
+        if new != TaskStatus.COMPLETED or not (
+            old.is_room_cleaning or old == TaskStatus.DOCKING_PAUSED
+        ):
             return
 
         # Get list of rooms cleaned in that time
