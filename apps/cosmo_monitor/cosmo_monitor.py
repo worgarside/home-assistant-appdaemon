@@ -555,9 +555,7 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
         new, old = TaskStatus(new), TaskStatus(old)
 
         # Check it's gone from some type of room cleaning to completed
-        if new != TaskStatus.COMPLETED or not (
-            old.is_room_cleaning or old == TaskStatus.DOCKING_PAUSED
-        ):
+        if new != TaskStatus.COMPLETED or not (old.is_room_cleaning or old.is_paused):
             return
 
         # Get list of rooms cleaned in that time
