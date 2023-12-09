@@ -502,12 +502,10 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
 
         Paused states are ignored when between two cleaning states.
         """
-        # Start 6 hours ago because there's no way the battery will last that long
-        six_hours_ago = self.datetime() - timedelta(hours=6)
-
+        # Start 24 hours ago because there's no way a cleaning session will last that long
         task_history = TaskStatusHistory.from_state_history(
             self,
-            lower_limit=six_hours_ago,
+            lower_limit=self.datetime() - timedelta(hours=24),
             reverse=True,
         )
 
