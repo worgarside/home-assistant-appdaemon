@@ -140,7 +140,7 @@ class State(BaseModel, Generic[S]):
 
     def __str__(self) -> str:
         """Return a string representation of the state."""
-        return f"{self.state}\t{self.start_time!s} to {self.end_time!s}"
+        return f"{self.state}\t{self.start_time!s} - {self.end_time!s}"
 
 
 class _History(BaseModel, Generic[S]):
@@ -209,7 +209,6 @@ class _History(BaseModel, Generic[S]):
                 state_history[0]["last_changed"],
                 upper_limit or "now",
             )
-            hass.log("First five items: %s", dumps(state_history, default=str))
         else:
             hass.log(
                 "No states found for %s between %s and %s",
@@ -359,6 +358,9 @@ class _History(BaseModel, Generic[S]):
 
     def __iter__(self) -> Iterator[State[S]]:  # type: ignore[override]
         return iter(self.states)
+
+    def __str__(self) -> str:
+        return "\n".join(str(state) for state in self.states)
 
 
 class AreaCleanedHistory(_History[float]):
@@ -554,6 +556,11 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
 
         # Check it's gone from some type of room cleaning to completed
         if new != TaskStatus.COMPLETED or not (old.is_room_cleaning or old.is_paused):
+            self.log(
+                "Not a room cleaning: %s -> %s",
+                old,
+                new,
+            )
             return
 
         # Get list of rooms cleaned in that time
@@ -581,7 +588,7 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
         for room, room_stats in area_cleaned_by_room.items():
             if (area_cleaned := room_stats["area"]) >= room.minimum_clean_area:
                 self.log(
-                    "%s has been cleaned enough (%.2f m²)",
+                    "%s has been cleaned enough (%.2f m^2)",
                     room,
                     area_cleaned,
                 )
