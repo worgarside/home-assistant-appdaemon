@@ -454,8 +454,8 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
         self.log_cleaning_time(
             entity="sensor.cosmo_task_status",
             attribute="state",
-            old=TaskStatus.COMPLETED,
-            new=TaskStatus.ROOM_CLEANING,
+            old=TaskStatus.ROOM_CLEANING,
+            new=TaskStatus.COMPLETED,
             kwargs={},
         )
 
