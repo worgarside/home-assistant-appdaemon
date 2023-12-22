@@ -25,7 +25,10 @@ class WebPImage(MediaItem):
     def validate_webp_filename(cls, value: str) -> str:
         """Validate that the filename is for a WebP image."""
         *parts, _ = value.split(".")
-        return ".".join([*parts, "webp"])
+
+        stem = ".".join(parts).replace("~", ".")
+
+        return f"{stem}.webp"
 
     def download(
         self,
@@ -98,10 +101,17 @@ class CosmoImageDownloader(Hass):  # type: ignore[misc]
         """Get the latest photo from the album."""
         self.refresh_album()
 
-        if missing_count := self.album.media_items_count - len(
-            list(PHOTOS_DIRECTORY.rglob("*.py")),
+        if missing_count := self.album.media_items_count - (
+            have := len(
+                list(PHOTOS_DIRECTORY.glob("*.webp")),
+            )
         ):
-            self.log("Missing %i photos, downloading...", missing_count)
+            self.log(
+                "Missing %i photos (%i/%i), downloading...",
+                missing_count,
+                have,
+                self.album.media_items_count,
+            )
 
             for photo in self.album.media_items:
                 if photo.media_type != MediaType.IMAGE:
