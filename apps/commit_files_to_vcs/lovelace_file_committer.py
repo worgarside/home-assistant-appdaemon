@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Final, Literal
@@ -10,6 +11,7 @@ from typing import Any, Final, Literal
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from github import Github, InputGitAuthor
 from github.Auth import Token
+from github.Branch import Branch
 from github.GithubException import GithubException, UnknownObjectException
 from github.Repository import Repository
 from wg_utilities.loggers import add_warehouse_handler
@@ -29,6 +31,7 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
     STORAGE_DIRECTORY: Final[Path] = Path("/homeassistant/.storage")
     REPO_DIRECTORY: Final[Path] = Path("lovelace/dashboards/ui_only")
 
+    branch: Branch | None
     github_author: InputGitAuthor
     repo: Repository
 
@@ -50,9 +53,8 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
         # Run on app init to cover bugfixes/restarts etc.
         self.commit_lovelace_files("folder_watcher", {}, {})
 
-    def _process_lovelace_file(self, file: Path) -> bool | None:
-        file_content = file.read_text(encoding="utf-8").strip() + "\n"
-
+    def _process_lovelace_file(self, file: Path) -> None:
+        file_content = file.read_text(encoding="utf-8").strip()
         repo_file = self.REPO_DIRECTORY.joinpath(file.name + ".json").as_posix()
 
         self.log("Processing Lovelace file: %s", repo_file)
@@ -66,27 +68,15 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
                 raise
 
             remote_file = None
-
-        if isinstance(remote_file, list):
-            raise TypeError(remote_file)
-
-        if remote_file is not None:
-            remote_content = remote_file.decoded_content.decode("utf-8").strip() + "\n"
-
-            if file_content == remote_content:
-                return None
-
-        for branch in self.repo.get_branches():
-            if branch.name == self.BRANCH_NAME:
-                branch_created = False
-                break
         else:
-            branch_created = True
-            ref = self.repo.get_git_ref("heads/main")
-            self.repo.create_git_ref(
-                ref=f"refs/heads/{self.BRANCH_NAME}",
-                sha=ref.object.sha,
-            )
+            if isinstance(remote_file, list):
+                raise TypeError(remote_file)
+
+            if (
+                remote_file
+                and file_content == remote_file.decoded_content.decode("utf-8").strip()
+            ):
+                return
 
         prefix = "Upd" if remote_file else "Cre"
         commit_message = f"{prefix}ate `{repo_file}`"
@@ -103,50 +93,22 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
                 author=self.github_author,
                 committer=self.github_author,
             )
-        else:
-            self.repo.create_file(
-                path=repo_file,
-                message=commit_message,
-                content=file_content,
-                branch=self.BRANCH_NAME,
-                author=self.github_author,
-                committer=self.github_author,
+            return
+
+        if branch_created := not self.branch_exists:
+            self.repo.create_git_ref(
+                ref=f"refs/heads/{self.BRANCH_NAME}",
+                sha=self.repo.get_git_ref("heads/main").object.sha,
             )
 
-        return branch_created
-
-    def commit_lovelace_files(
-        self,
-        _: Literal["folder_watcher"],
-        data: dict[str, Any],
-        ___: dict[str, str],
-    ) -> None:
-        """Commit the version file to GitHub on startup."""
-        self.log(data)
-
-        if data and not self.LOVELACE_FILE_PATTERN.fullmatch(
-            data.get("dest_file", data.get("file", "")),
-        ):
-            return
-
-        branch_created = False
-        some_change_made = False
-
-        for file in self.STORAGE_DIRECTORY.rglob("*"):
-            if not self.LOVELACE_FILE_PATTERN.fullmatch(file.name):
-                continue
-
-            self.log("Found Lovelace file: %s", file.as_posix())
-
-            if (branch_created_for_file := self._process_lovelace_file(file)) is None:
-                continue
-
-            some_change_made = True
-            branch_created = branch_created or branch_created_for_file
-
-        if not some_change_made:
-            self.log("No changes made")
-            return
+        self.repo.create_file(
+            path=repo_file,
+            message=commit_message,
+            content=file_content,
+            branch=self.BRANCH_NAME,
+            author=self.github_author,
+            committer=self.github_author,
+        )
 
         if branch_created:
             self.log("Creating pull request")
@@ -157,27 +119,50 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
                 base="main",
                 draft=False,
             )
-        else:
-            matching_prs = [
-                pr
-                for pr in self.repo.get_pulls(state="open")
-                if pr.head.ref == self.BRANCH_NAME and pr.base.ref == "main"
+            pr.set_labels("chore", "ha:lovelace", "non-functional", "tools")
+
+            self.log(pr.html_url)
+
+            self.persistent_notification(
+                title="Lovelace UI Dashboard Files Updated",
+                id="lovelace_ui_dashboard_files_updated",
+                message=f"A **[pull request]({pr.html_url})** has been created for the"
+                " UI Lovelace dashboards.",
+            )
+
+    def commit_lovelace_files(
+        self,
+        _: Literal["folder_watcher"],
+        data: dict[str, Any],
+        ___: dict[str, str],
+    ) -> None:
+        """Commit the version file to GitHub on startup."""
+        if data and not self.LOVELACE_FILE_PATTERN.fullmatch(
+            data.get("dest_file", data.get("file", "")),
+        ):
+            return
+
+        if not (
+            lovelace_files := [
+                file
+                for file in self.STORAGE_DIRECTORY.rglob("*")
+                if self.LOVELACE_FILE_PATTERN.fullmatch(file.name)
             ]
+        ):
+            return
 
-            self.log("Found %d matching PRs: %s", len(matching_prs), matching_prs)
+        branch_exists.cache_clear()
 
-            if matching_prs:
-                pr = matching_prs[0]
-            else:
-                raise RuntimeError("No matching PRs found")  # noqa: TRY003
+        for file in lovelace_files:
+            self._process_lovelace_file(file)
 
-        pr.set_labels("chore", "ha:lovelace", "non-functional", "tools")
+    @property
+    def branch_exists(self) -> bool:
+        """Return whether the branch exists."""
+        return branch_exists(self.BRANCH_NAME, self.repo)
 
-        self.log(pr.html_url)
 
-        self.persistent_notification(
-            title="Lovelace UI Dashboard Files Updated",
-            id="lovelace_ui_dashboard_files_updated",
-            message=f"A **[pull request]({pr.html_url})** has been {'cre' if branch_created else 'upd'}ated for the"
-            " UI Lovelace dashboards.",
-        )
+@lru_cache(maxsize=1)
+def branch_exists(branch_name: str, repo: Repository) -> bool:
+    """Return whether the branch exists."""
+    return any(branch.name == branch_name for branch in repo.get_branches())
