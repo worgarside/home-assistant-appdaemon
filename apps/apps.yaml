@@ -6,6 +6,18 @@ appdaemon_updater:
   module: appdaemon_updater
   class: Updater
 
+# Commit Files to VCS
+
+lovelace_file_committer:
+  module: lovelace_file_committer
+  class: LovelaceFileCommitter
+  github_token: !secret appdaemon_github_token
+
+version_file_committer:
+  module: version_file_committer
+  class: VersionFileCommitter
+  github_token: !secret appdaemon_github_token
+
 # Robot Vacuum
 
 cosmo_vacuum:
@@ -102,10 +114,3 @@ starling_joint_balance_getter:
   client_secret: !secret truelayer_client_secret
   account_ids:
     account: !secret truelayer_starling_joint_account_id
-
-# Version File Committer
-
-version_file_committer:
-  module: version_file_committer
-  class: VersionFileCommitter
-  github_token: !secret appdaemon_github_token
