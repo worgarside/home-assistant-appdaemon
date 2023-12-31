@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Any, Final, Literal
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
-from github import Auth, Github
+from github import Github, InputGitAuthor
+from github.Auth import Token
+from github.Repository import Repository
 from wg_utilities.loggers import add_warehouse_handler
 
 REPO_NAME: Final[str] = "worgarside/home-assistant"
@@ -17,9 +19,19 @@ class VersionFileCommitter(Hass):  # type: ignore[misc]
 
     VERSION_FILE_PATH: Final[Path] = Path("/homeassistant/.HA_VERSION")
 
+    github_author: InputGitAuthor
+    repo: Repository
+
     def initialize(self) -> None:
         """Initialize the app."""
         add_warehouse_handler(self.err)
+
+        self.repo = Github(auth=Token(self.args["github_token"])).get_repo(REPO_NAME)
+
+        self.github_author = InputGitAuthor(
+            name="Home Assistant",
+            email=self.args.get("github_email", ""),
+        )
 
         self.listen_event(self.commit_version_file, "homeassistant_start")
 
@@ -37,10 +49,7 @@ class VersionFileCommitter(Hass):  # type: ignore[misc]
 
         self.log("Local version: %s", local_version)
 
-        github = Github(auth=Auth.Token(self.args["github_token"]))
-        repo = github.get_repo(REPO_NAME)
-
-        remote_file = repo.get_contents(".HA_VERSION")
+        remote_file = self.repo.get_contents(".HA_VERSION")
 
         if isinstance(remote_file, list):
             raise TypeError(remote_file)
@@ -52,28 +61,33 @@ class VersionFileCommitter(Hass):  # type: ignore[misc]
         if local_version != remote_version:
             branch_name = f"chore/home-assistant-{local_version}"
 
-            if any(branch.name == branch_name for branch in repo.get_branches()):
+            if any(branch.name == branch_name for branch in self.repo.get_branches()):
                 self.log("Branch `%s` already exists", branch_name)
                 return
 
-            ref = repo.get_git_ref("heads/main")
-            repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=ref.object.sha)
+            ref = self.repo.get_git_ref("heads/main")
+            self.repo.create_git_ref(
+                ref=f"refs/heads/{branch_name}",
+                sha=ref.object.sha,
+            )
 
             commit_message = f"Bump Home Assistant version to `{local_version}`"
 
             self.log("Creating commit with message: %s", commit_message)
 
-            repo.update_file(
+            self.repo.update_file(
                 ".HA_VERSION",
                 commit_message,
                 local_version + "\n",
                 remote_file.sha,
                 branch=branch_name,
+                author=self.github_author,
+                committer=self.github_author,
             )
 
             self.log("Creating pull request")
 
-            pr = repo.create_pull(
+            pr = self.repo.create_pull(
                 title=commit_message,
                 head=branch_name,
                 base="main",

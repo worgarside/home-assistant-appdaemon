@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any, Final, Literal
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
-from github import Auth, Github
+from github import Github, InputGitAuthor
+from github.Auth import Token
 from github.GithubException import GithubException, UnknownObjectException
 from github.Repository import Repository
 from wg_utilities.loggers import add_warehouse_handler
@@ -28,14 +29,20 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
     STORAGE_DIRECTORY: Final[Path] = Path("/homeassistant/.storage")
     REPO_DIRECTORY: Final[Path] = Path("lovelace/dashboards/ui_only")
 
+    github_author: InputGitAuthor
     repo: Repository
 
     def initialize(self) -> None:
         """Initialize the app."""
         add_warehouse_handler(self.err)
 
-        self.repo = Github(auth=Auth.Token(self.args["github_token"])).get_repo(
+        self.repo = Github(auth=Token(self.args["github_token"])).get_repo(
             REPO_NAME,
+        )
+
+        self.github_author = InputGitAuthor(
+            name="Home Assistant",
+            email=self.args.get("github_email", ""),
         )
 
         self.listen_event(self.commit_lovelace_files, "folder_watcher")
@@ -93,6 +100,8 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
                 content=file_content,
                 sha=remote_file.sha,
                 branch=self.BRANCH_NAME,
+                author=self.github_author,
+                committer=self.github_author,
             )
         else:
             self.repo.create_file(
@@ -100,6 +109,8 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
                 message=commit_message,
                 content=file_content,
                 branch=self.BRANCH_NAME,
+                author=self.github_author,
+                committer=self.github_author,
             )
 
         return branch_created
