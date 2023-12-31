@@ -157,8 +157,6 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
                 base="main",
                 draft=False,
             )
-
-            pr.set_labels("non-functional", "tools")
         else:
             matching_prs = [
                 pr
@@ -172,6 +170,8 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
                 pr = matching_prs[0]
             else:
                 raise RuntimeError("No matching PRs found")  # noqa: TRY003
+
+        pr.set_labels("chore", "ha:lovelace", "non-functional", "tools")
 
         self.log(pr.html_url)
 
