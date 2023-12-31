@@ -12,11 +12,13 @@ lovelace_file_committer:
   module: lovelace_file_committer
   class: LovelaceFileCommitter
   github_token: !secret appdaemon_github_token
+  github_email: !secret google_maps_location_tracker_email
 
 version_file_committer:
   module: version_file_committer
   class: VersionFileCommitter
   github_token: !secret appdaemon_github_token
+  github_email: !secret google_maps_location_tracker_email
 
 # Robot Vacuum
 
