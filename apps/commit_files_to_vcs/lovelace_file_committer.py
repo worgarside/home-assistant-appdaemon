@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Final, Literal
@@ -94,18 +95,11 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
             )
             return
 
-        branch_created = False
-        if not self.branch:
+        if branch_created := not self.branch_exists:
             self.repo.create_git_ref(
                 ref=f"refs/heads/{self.BRANCH_NAME}",
                 sha=self.repo.get_git_ref("heads/main").object.sha,
             )
-            branch_created = True
-
-            for branch in self.repo.get_branches():
-                if branch.name == self.BRANCH_NAME:
-                    self.branch = branch
-                    break
 
         self.repo.create_file(
             path=repo_file,
@@ -157,12 +151,18 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
         ):
             return
 
-        for branch in self.repo.get_branches():
-            if branch.name == self.BRANCH_NAME:
-                self.branch = branch
-                break
-        else:
-            self.branch = None
+        branch_exists.cache_clear()
 
         for file in lovelace_files:
             self._process_lovelace_file(file)
+
+    @property
+    def branch_exists(self) -> bool:
+        """Return whether the branch exists."""
+        return branch_exists(self.BRANCH_NAME, self.repo)
+
+
+@lru_cache(maxsize=1)
+def branch_exists(branch_name: str, repo: Repository) -> bool:
+    """Return whether the branch exists."""
+    return any(branch.name == branch_name for branch in repo.get_branches())
