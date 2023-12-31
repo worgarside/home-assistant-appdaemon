@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from PIL import Image
@@ -13,6 +13,8 @@ from wg_utilities.clients import GooglePhotosClient
 from wg_utilities.clients.google_photos import Album, MediaItem, MediaType
 
 PHOTOS_DIRECTORY: Final[Path] = Path("/homeassistant/www/images/cosmo")
+
+DIMENSION_OVERRIDE: Final[Literal[512]] = 512
 
 
 class WebPImage(MediaItem):
@@ -40,9 +42,13 @@ class WebPImage(MediaItem):
         force_download: bool = False,
     ) -> Path:
         """Download the media item, convert to WebP and save to local storage."""
-        del target_directory, file_name_override, force_download
-
-        width_override = height_override = 512
+        del (
+            file_name_override,
+            force_download,
+            height_override,
+            target_directory,
+            width_override,
+        )
 
         image = Image.open(BytesIO(self.as_bytes()))
 
@@ -54,7 +60,7 @@ class WebPImage(MediaItem):
         bottom = int((height + min_dimension) / 2)
 
         image.crop((left, top, right, bottom)).resize(
-            (width_override, height_override),
+            (DIMENSION_OVERRIDE, DIMENSION_OVERRIDE),
             Image.Resampling.LANCZOS,
         ).save(self.local_path, "WEBP")
 
