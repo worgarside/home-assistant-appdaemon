@@ -11,6 +11,9 @@
 			"name": "scratchpads",
 			"uri": "/Users/worgarside/Library/Application Support/Code/User/globalStorage/buenon.scratchpads/scratchpads"
 		},
+		{
+			"path": "/Users/worgarside/Library/Application Support/WgUtilities/"
+		},
         {
             "name": "SSH FS - /config",
             "uri": "ssh://hasspi-config/homeassistant"

@@ -10,6 +10,7 @@ python = "^3.11"
 wg-utilities = {extras = ["clients"], version = "^5.7.0"}
 pygithub = "^2.1.1"
 gitpython = "^3.1.40"
+pillow = "^10.1.0"
 
 [tool.poetry.group.dev.dependencies]
 appdaemon = "^4.4.2"

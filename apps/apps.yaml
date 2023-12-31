@@ -20,7 +20,14 @@ version_file_committer:
 
 # Robot Vacuum
 
-cosmo_vacuum:
+cosmo_image_downloader:
+  module: cosmo_image_downloader
+  class: CosmoImageDownloader
+  client_id: !secret google_photos_cosmo_client_id
+  client_secret: !secret google_photos_cosmo_client_secret
+  album_id: !secret google_photos_cosmo_album_id
+
+cosmo_monitor:
   module: cosmo_monitor
   class: CosmoMonitor
 

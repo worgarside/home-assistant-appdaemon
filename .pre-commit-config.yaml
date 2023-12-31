@@ -99,8 +99,9 @@ repos:
           - --show-error-codes
         additional_dependencies:
           - gitpython==3.1.40
-          - pydantic==2.4.2
+          - pydantic==2.5.3
           - pygithub==2.1.1
+          - types-Pillow
           - wg-utilities==5.7.0
 
   - repo: local
