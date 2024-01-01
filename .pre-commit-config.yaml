@@ -102,7 +102,7 @@ repos:
           - pydantic==2.5.3
           - pygithub==2.1.1
           - types-Pillow
-          - wg-utilities==5.7.0
+          - wg-utilities==5.7.1
 
   - repo: local
     hooks:
