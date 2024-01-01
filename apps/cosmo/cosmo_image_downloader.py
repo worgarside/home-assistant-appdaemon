@@ -11,6 +11,7 @@ from PIL import Image
 from pydantic import field_validator
 from wg_utilities.clients import GooglePhotosClient
 from wg_utilities.clients.google_photos import Album, MediaItem, MediaType
+from wg_utilities.functions import force_mkdir
 
 PHOTOS_DIRECTORY: Final[Path] = Path("/homeassistant/www/images/cosmo")
 
@@ -87,8 +88,7 @@ class CosmoImageDownloader(Hass):  # type: ignore[misc]
 
     def initialize(self) -> None:
         """Initialize the app."""
-        if not PHOTOS_DIRECTORY.is_dir():
-            PHOTOS_DIRECTORY.mkdir(parents=True)
+        force_mkdir(PHOTOS_DIRECTORY)
 
         self.client = GooglePhotosClient(
             client_id=self.args["client_id"],
