@@ -23,6 +23,7 @@ class CosmoState(StateValue):
 
     CLEANING = "cleaning"
     DOCKED = "docked"
+    ERROR = "error"
     IDLE = "idle"
     PAUSED = "paused"
     RETURNING_TO_DOCK = "returning"
