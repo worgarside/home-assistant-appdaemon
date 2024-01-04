@@ -13,6 +13,7 @@ from github import Github, InputGitAuthor
 from github.Auth import Token
 from github.Branch import Branch
 from github.GithubException import GithubException, UnknownObjectException
+from github.PullRequest import PullRequest
 from github.Repository import Repository
 from wg_utilities.loggers import add_warehouse_handler
 
@@ -81,7 +82,9 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
         prefix = "Upd" if remote_file else "Cre"
         commit_message = f"{prefix}ate `{repo_file}`"
 
-        self.log("%sating commit with message: %s", prefix.title(), commit_message)
+        self.log("Creating commit with message: %s", commit_message)
+
+        file_content += "\n"
 
         if remote_file:
             self.repo.update_file(
@@ -93,26 +96,26 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
                 author=self.github_author,
                 committer=self.github_author,
             )
-            return
+        else:
+            if not self.branch_exists:
+                self.repo.create_git_ref(
+                    ref=f"refs/heads/{self.BRANCH_NAME}",
+                    sha=self.repo.get_git_ref("heads/main").object.sha,
+                )
 
-        if branch_created := not self.branch_exists:
-            self.repo.create_git_ref(
-                ref=f"refs/heads/{self.BRANCH_NAME}",
-                sha=self.repo.get_git_ref("heads/main").object.sha,
+                branch_exists.cache_clear()
+
+            self.repo.create_file(
+                path=repo_file,
+                message=commit_message,
+                content=file_content,
+                branch=self.BRANCH_NAME,
+                author=self.github_author,
+                committer=self.github_author,
             )
 
-        self.repo.create_file(
-            path=repo_file,
-            message=commit_message,
-            content=file_content,
-            branch=self.BRANCH_NAME,
-            author=self.github_author,
-            committer=self.github_author,
-        )
-
-        if branch_created:
+        if (pr := self.pull_request) is None:
             self.log("Creating pull request")
-
             pr = self.repo.create_pull(
                 title="Update UI Lovelace Dashboard Files",
                 head=self.BRANCH_NAME,
@@ -121,14 +124,14 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
             )
             pr.set_labels("chore", "ha:lovelace", "non-functional", "tools")
 
-            self.log(pr.html_url)
+        self.log(pr.html_url)
 
-            self.persistent_notification(
-                title="Lovelace UI Dashboard Files Updated",
-                id="lovelace_ui_dashboard_files_updated",
-                message=f"A **[pull request]({pr.html_url})** has been created for the"
-                " UI Lovelace dashboards.",
-            )
+        self.persistent_notification(
+            title="Lovelace UI Dashboard Files Updated",
+            id=f"lovelace_ui_dashboard_files_updated_{prefix}",
+            message=f"A **[pull request]({pr.html_url})** has been {prefix.lower()}ated for the"
+            " UI Lovelace dashboards.",
+        )
 
     def commit_lovelace_files(
         self,
@@ -161,8 +164,35 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
         """Return whether the branch exists."""
         return branch_exists(self.BRANCH_NAME, self.repo)
 
+    @property
+    def pull_request(self) -> PullRequest | None:
+        """Return the pull request if it exists."""
+        if (pr := pull_request(self.BRANCH_NAME, self.repo)) is None:
+            pull_request.cache_clear()
+
+            self.log("Pull request does not exist")
+        else:
+            pr.update()
+
+            if pr.state == "closed":
+                pull_request.cache_clear()
+                self.log("Pull request is closed, refreshing")
+                return self.pull_request
+
+        return pr
+
 
 @lru_cache(maxsize=1)
 def branch_exists(branch_name: str, repo: Repository) -> bool:
     """Return whether the branch exists."""
     return any(branch.name == branch_name for branch in repo.get_branches())
+
+
+@lru_cache(maxsize=1)
+def pull_request(branch_name: str, repo: Repository) -> PullRequest | None:
+    """Return whether the pull request exists."""
+    for pr in repo.get_pulls(state="open"):
+        if pr.head.ref == branch_name:
+            return pr
+
+    return None
