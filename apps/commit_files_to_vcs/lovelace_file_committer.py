@@ -172,11 +172,11 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
     def pull_request(self) -> PullRequest | None:
         """Return the pull request if it exists."""
         if (pr := pull_request(self.BRANCH_NAME, self.repo)) is None:
-            pull_request.cache_clear() # Don't cache None
+            pull_request.cache_clear()  # Don't cache None
 
             self.log("Pull request does not exist")
         else:
-            pr.update() # Check it's not an old PR that's since been closed
+            pr.update()  # Check it's not an old PR that's since been closed
 
             if pr.state == "closed":
                 pull_request.cache_clear()
