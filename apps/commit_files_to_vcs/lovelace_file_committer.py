@@ -124,12 +124,16 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
             )
             pr.set_labels("chore", "ha:lovelace", "non-functional", "tools")
 
+            pr_prefix = "cre"
+        else:
+            pr_prefix = "upd"
+
         self.log(pr.html_url)
 
         self.persistent_notification(
             title="Lovelace UI Dashboard Files Updated",
-            id=f"lovelace_ui_dashboard_files_updated_{prefix}",
-            message=f"A **[pull request]({pr.html_url})** has been {prefix.lower()}ated for the"
+            id=f"lovelace_ui_dashboard_files_updated_{pr_prefix}",
+            message=f"A **[pull request]({pr.html_url})** has been {pr_prefix.lower()}ated for the"
             " UI Lovelace dashboards.",
         )
 
@@ -168,11 +172,11 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
     def pull_request(self) -> PullRequest | None:
         """Return the pull request if it exists."""
         if (pr := pull_request(self.BRANCH_NAME, self.repo)) is None:
-            pull_request.cache_clear()
+            pull_request.cache_clear()  # Don't cache None
 
             self.log("Pull request does not exist")
         else:
-            pr.update()
+            pr.update()  # Check it's not an old PR that's since been closed
 
             if pr.state == "closed":
                 pull_request.cache_clear()
