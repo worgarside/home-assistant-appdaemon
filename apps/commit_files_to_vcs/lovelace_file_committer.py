@@ -60,6 +60,8 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
 
         self.log("Processing Lovelace file: %s", repo_file)
 
+        self.repo.update()
+
         try:
             remote_file = self.repo.get_contents(repo_file, ref=self.BRANCH_NAME)
         except UnknownObjectException:
@@ -105,6 +107,8 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
 
                 branch_exists.cache_clear()
 
+            self.repo.update()
+
             self.repo.create_file(
                 path=repo_file,
                 message=commit_message,
@@ -113,6 +117,8 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
                 author=self.github_author,
                 committer=self.github_author,
             )
+
+        self.repo.update()
 
         if (pr := self.pull_request) is None:
             self.log("Creating pull request")
@@ -123,6 +129,8 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
                 draft=False,
             )
             pr.set_labels("chore", "ha:lovelace", "non-functional", "tools")
+
+            self.repo.update()
 
             pr_prefix = "cre"
         else:
