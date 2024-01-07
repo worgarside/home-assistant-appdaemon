@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ha-appdaemon"
-version = "0.9.7"
+version = "0.9.8"
 description = ""
 authors = ["Will Garside <worgarside@gmail.com>"]
 readme = "README.md"
