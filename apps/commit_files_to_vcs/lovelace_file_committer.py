@@ -12,7 +12,7 @@ from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found
 from github import Github, InputGitAuthor
 from github.Auth import Token
 from github.Branch import Branch
-from github.GithubException import GithubException, UnknownObjectException
+from github.GithubException import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 from wg_utilities.loggers import add_warehouse_handler
@@ -63,13 +63,15 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
         self.repo.update()
 
         try:
-            remote_file = self.repo.get_contents(repo_file, ref=self.BRANCH_NAME)
-        except UnknownObjectException:
-            remote_file = None
+            remote_file = self.repo.get_contents(
+                repo_file,
+                ref=self.BRANCH_NAME if self.branch_exists else "main",
+            )
         except GithubException as e:
             if e.status != HTTPStatus.NOT_FOUND:
                 raise
 
+            self.log("File does not exist in repo at %s", repo_file)
             remote_file = None
         else:
             if isinstance(remote_file, list):
@@ -79,7 +81,10 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
                 remote_file
                 and file_content == remote_file.decoded_content.decode("utf-8").strip()
             ):
+                self.log("File content is unchanged")
                 return
+
+            self.log("File content has changed")
 
         prefix = "Upd" if remote_file else "Cre"
         commit_message = f"{prefix}ate `{repo_file}`"
@@ -100,6 +105,8 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
             )
         else:
             if not self.branch_exists:
+                self.log("Creating branch %s", self.BRANCH_NAME)
+
                 self.repo.create_git_ref(
                     ref=f"refs/heads/{self.BRANCH_NAME}",
                     sha=self.repo.get_git_ref("heads/main").object.sha,
