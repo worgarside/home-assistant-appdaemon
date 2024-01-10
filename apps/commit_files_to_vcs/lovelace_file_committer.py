@@ -93,7 +93,7 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
 
         file_content += "\n"
 
-        if remote_file:
+        if self.branch_exists and remote_file:
             self.repo.update_file(
                 path=repo_file,
                 message=commit_message,
@@ -209,7 +209,7 @@ def branch_exists(branch_name: str, repo: Repository) -> bool:
 
 @lru_cache(maxsize=1)
 def pull_request(branch_name: str, repo: Repository) -> PullRequest | None:
-    """Return whether the pull request exists."""
+    """Return the pull request - if it exists."""
     for pr in repo.get_pulls(state="open"):
         if pr.head.ref == branch_name:
             return pr
