@@ -1,4 +1,7 @@
 ---
+default_language_version:
+  python: python3.11
+
 repos:
   - repo: https://github.com/rhysd/actionlint
     rev: v1.6.26
@@ -9,6 +12,7 @@ repos:
     rev: 1.0.1
     hooks:
       - id: sync-additional-dependencies
+        language_version: python3.11
 
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.15.0
@@ -21,7 +25,6 @@ repos:
     rev: 23.12.1
     hooks:
       - id: black
-        language_version: python3.11
 
   - repo: https://github.com/asottile/blacken-docs
     rev: 1.16.0
@@ -98,11 +101,11 @@ repos:
           - --strict
           - --show-error-codes
         additional_dependencies:
-          - gitpython==3.1.40
+          - gitpython==3.1.41
           - pydantic==2.5.3
           - pygithub==2.1.1
           - types-Pillow
-          - wg-utilities==5.8.0
+          - wg-utilities==5.8.1
 
   - repo: local
     hooks:

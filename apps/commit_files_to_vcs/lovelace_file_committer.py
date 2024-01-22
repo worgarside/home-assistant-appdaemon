@@ -93,7 +93,19 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
 
         file_content += "\n"
 
-        if self.branch_exists and remote_file:
+        if not self.branch_exists:
+            self.log("Creating branch %s", self.BRANCH_NAME)
+
+            self.repo.create_git_ref(
+                ref=f"refs/heads/{self.BRANCH_NAME}",
+                sha=self.repo.get_git_ref("heads/main").object.sha,
+            )
+
+            branch_exists.cache_clear()
+
+            self.repo.update()
+
+        if remote_file:
             self.repo.update_file(
                 path=repo_file,
                 message=commit_message,
@@ -104,25 +116,13 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
                 committer=self.github_author,
             )
         else:
-            if not self.branch_exists:
-                self.log("Creating branch %s", self.BRANCH_NAME)
-
-                self.repo.create_git_ref(
-                    ref=f"refs/heads/{self.BRANCH_NAME}",
-                    sha=self.repo.get_git_ref("heads/main").object.sha,
-                )
-
-                branch_exists.cache_clear()
-
-            self.repo.update()
-
             self.repo.create_file(
                 path=repo_file,
                 message=commit_message,
                 content=file_content,
                 branch=self.BRANCH_NAME,
-                author=self.github_author,
                 committer=self.github_author,
+                author=self.github_author,
             )
 
         self.repo.update()
