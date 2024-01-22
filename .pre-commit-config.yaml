@@ -102,7 +102,7 @@ repos:
           - pydantic==2.5.3
           - pygithub==2.1.1
           - types-Pillow
-          - wg-utilities==5.7.1
+          - wg-utilities==5.8.0
 
   - repo: local
     hooks:
@@ -137,6 +137,6 @@ repos:
 
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.11
+    rev: v0.1.13
     hooks:
       - id: ruff
