@@ -134,6 +134,7 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
                 head=self.BRANCH_NAME,
                 base="main",
                 draft=False,
+                maintainer_can_modify=False,
             )
             pr.set_labels("chore", "ha:lovelace", "non-functional", "tools")
 
