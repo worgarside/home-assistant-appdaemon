@@ -1,4 +1,5 @@
 """Manage my Monzo pot for credit card payments."""
+
 from __future__ import annotations
 
 from pathlib import Path

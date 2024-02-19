@@ -9,9 +9,9 @@ from appdaemon.entity import Entity  # type: ignore[import-not-found]
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from git import GitCommandError, Repo
 
-environ[
-    "GIT_SSH_COMMAND"
-] = "ssh -o StrictHostKeyChecking=no -i /homeassistant/.ssh/github"
+environ["GIT_SSH_COMMAND"] = (
+    "ssh -o StrictHostKeyChecking=no -i /homeassistant/.ssh/github"
+)
 
 
 class Updater(Hass):  # type: ignore[misc]
