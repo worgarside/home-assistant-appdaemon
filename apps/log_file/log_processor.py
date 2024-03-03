@@ -1,6 +1,5 @@
 """App to process the Home Assistant log."""
 
-
 from __future__ import annotations
 
 from hashlib import md5

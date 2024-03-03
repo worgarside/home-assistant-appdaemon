@@ -1,4 +1,5 @@
 """Get bank account/card balances from TrueLayer."""
+
 from __future__ import annotations
 
 from collections.abc import Callable

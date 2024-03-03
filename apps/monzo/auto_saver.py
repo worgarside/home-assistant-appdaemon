@@ -1,4 +1,5 @@
 """Automatically save money based on certain criteria."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Collection
