@@ -102,7 +102,7 @@ repos:
         additional_dependencies:
           - gitpython==3.1.42
           - pydantic==2.5.3
-          - pygithub==2.1.1
+          - pygithub==2.2.0
           - types-Pillow
           - wg-utilities==5.8.1
 
