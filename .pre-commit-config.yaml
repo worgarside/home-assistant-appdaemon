@@ -4,12 +4,12 @@ default_language_version:
 
 repos:
   - repo: https://github.com/rhysd/actionlint
-    rev: v1.6.26
+    rev: v1.6.27
     hooks:
       - id: actionlint
 
   - repo: https://github.com/worgarside/pre-commit-hooks-dependency-sync
-    rev: 1.0.1
+    rev: 1.1.0
     hooks:
       - id: sync-additional-dependencies
 
@@ -93,7 +93,7 @@ repos:
           - --all
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.8.0
+    rev: v1.9.0
     hooks:
       - id: mypy
         args:
@@ -139,6 +139,6 @@ repos:
 
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.2.2
+    rev: v0.3.2
     hooks:
       - id: ruff
