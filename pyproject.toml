@@ -9,7 +9,7 @@ readme = "README.md"
 python = "~3.11"
 wg-utilities = {extras = ["clients"], version = "^5.14.1"}
 pygithub = "^2.3.0"
-gitpython = "^3.1.42"
+gitpython = "^3.1.43"
 pillow = "^10.3.0"
 
 [tool.poetry.group.dev.dependencies]
