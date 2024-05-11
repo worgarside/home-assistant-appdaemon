@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from github import Github, InputGitAuthor
 from github.Auth import Token
-from github.Repository import Repository
 from wg_utilities.loggers import add_warehouse_handler
+
+if TYPE_CHECKING:
+    from github.Repository import Repository
 
 REPO_NAME: Final[str] = "worgarside/home-assistant"
 

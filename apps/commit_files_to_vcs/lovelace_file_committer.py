@@ -6,16 +6,18 @@ import re
 from functools import lru_cache
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from github import Github, InputGitAuthor
 from github.Auth import Token
-from github.Branch import Branch
 from github.GithubException import GithubException
-from github.PullRequest import PullRequest
-from github.Repository import Repository
 from wg_utilities.loggers import add_warehouse_handler
+
+if TYPE_CHECKING:
+    from github.Branch import Branch
+    from github.PullRequest import PullRequest
+    from github.Repository import Repository
 
 REPO_NAME: Final[str] = "worgarside/home-assistant"
 

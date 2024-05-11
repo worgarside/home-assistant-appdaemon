@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from os import environ
-from typing import Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
-from appdaemon.entity import Entity  # type: ignore[import-not-found]
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from git import GitCommandError, Repo
+
+if TYPE_CHECKING:
+    from appdaemon.entity import Entity  # type: ignore[import-not-found]
 
 environ["GIT_SSH_COMMAND"] = (
     "ssh -o StrictHostKeyChecking=no -i /homeassistant/.ssh/github"
@@ -82,7 +84,8 @@ class Updater(Hass):  # type: ignore[misc]
 
                 self.REPO.git.stash(
                     "save",
-                    stash_msg := f"Stashing changes before updating to {new} | {self.datetime()!s}",
+                    stash_msg
+                    := f"Stashing changes before updating to {new} | {self.datetime()!s}",
                 )
 
                 self.log("Stashed changes: %s", stash_msg)

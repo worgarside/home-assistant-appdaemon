@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection
 from datetime import datetime, timedelta
 from json import dumps
 from pathlib import Path
 from re import IGNORECASE, Pattern
 from re import compile as re_compile
-from typing import Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
-from appdaemon.entity import Entity  # type: ignore[import-not-found]
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from wg_utilities.clients import MonzoClient, SpotifyClient, TrueLayerClient
-from wg_utilities.clients.monzo import Pot
-from wg_utilities.clients.monzo import Transaction as MonzoTransaction
 from wg_utilities.clients.truelayer import Bank, Card
 from wg_utilities.clients.truelayer import Transaction as TrueLayerTransaction
 from wg_utilities.loggers import add_warehouse_handler
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Collection
+
+    from appdaemon.entity import Entity  # type: ignore[import-not-found]
+    from wg_utilities.clients.monzo import Pot
+    from wg_utilities.clients.monzo import Transaction as MonzoTransaction
 
 CACHE_DIR = Path("/homeassistant/.wg-utilities/oauth_credentials")
 
@@ -71,7 +74,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
             savings_pot := self.monzo_client.get_pot_by_id(self.args["savings_pot_id"])
         ):
             self.error("Could not find savings pot")
-            raise RuntimeError("Could not find savings pot")  # noqa: TRY003
+            raise RuntimeError("Could not find savings pot")
 
         self.savings_pot = savings_pot
 

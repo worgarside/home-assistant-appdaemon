@@ -112,7 +112,7 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
             if actionable.action_phrase == action_phrase:
                 break
         else:
-            raise ValueError(f"Unknown action phrase {action_phrase}")  # noqa: TRY003
+            raise ValueError(f"Unknown action phrase {action_phrase}")
 
         track = self.spotify.get_track_by_id(track_id)
 
