@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from enum import StrEnum
 from json import dumps
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from wg_utilities.clients import TrueLayerClient
 from wg_utilities.clients.truelayer import Account, Bank, Card
 from wg_utilities.loggers import add_warehouse_handler
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class EntityType(StrEnum):

@@ -2,14 +2,26 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from json import dumps
-from typing import Any, ClassVar, Final, Generic, Literal, Self, TypedDict, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Final,
+    Generic,
+    Literal,
+    Self,
+    TypedDict,
+    TypeVar,
+)
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from pydantic import BaseModel, ConfigDict, computed_field
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 UNAVAILABLE: Final[str] = "unavailable"
 
@@ -192,7 +204,7 @@ class _History(BaseModel, Generic[S]):
         )
 
         if not hass_history or len(hass_history) != 1:
-            raise ValueError(  # noqa: TRY003
+            raise ValueError(
                 "Unexpected response from Home Assistant"
                 f" history API: {hass_history!r}",
             )
@@ -347,7 +359,7 @@ class _History(BaseModel, Generic[S]):
             if state.start_time <= dttm < state.end_time:
                 return state
 
-        raise ValueError(  # noqa: TRY003
+        raise ValueError(
             f"No state found for {self.ENTITY_ID} at {dttm!s}",
         )
 
@@ -367,7 +379,7 @@ class _History(BaseModel, Generic[S]):
 class AreaCleanedHistory(_History[float]):
     """A history of the vacuum's cleaned area."""
 
-    ENTITY_ID = "sensor.cosmo_cleaned_area"
+    ENTITY_ID: ClassVar[str] = "sensor.cosmo_cleaned_area"
 
     @staticmethod
     def filter_current_state_out(
@@ -395,13 +407,13 @@ class AreaCleanedHistory(_History[float]):
 class CosmoStateHistory(_History[CosmoState]):
     """A history of the vacuum's state."""
 
-    ENTITY_ID = "vacuum.cosmo"
+    ENTITY_ID: ClassVar[str] = "vacuum.cosmo"
 
 
 class CurrentRoomHistory(_History[Room]):
     """A history of the vacuum's current room."""
 
-    ENTITY_ID = "sensor.cosmo_current_room"
+    ENTITY_ID: ClassVar[str] = "sensor.cosmo_current_room"
 
     @staticmethod
     def filter_current_state_out(
@@ -436,7 +448,7 @@ class CurrentRoomHistory(_History[Room]):
 class TaskStatusHistory(_History[TaskStatus]):
     """A history of the vacuum's task status."""
 
-    ENTITY_ID = "sensor.cosmo_task_status"
+    ENTITY_ID: ClassVar[str] = "sensor.cosmo_task_status"
 
 
 class AreaCleanedByRoom(TypedDict):
@@ -524,7 +536,7 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
                 # Neither cleaning nor paused, and a cleaning period has been found
                 break
         else:
-            raise ValueError("No cleaning task status found")  # noqa: TRY003
+            raise ValueError("No cleaning task status found")
 
         cosmo_history = CosmoStateHistory.from_state_history(
             self,

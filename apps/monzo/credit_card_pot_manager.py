@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from wg_utilities.clients import MonzoClient
-from wg_utilities.clients.monzo import Pot
 from wg_utilities.loggers import add_warehouse_handler
+
+if TYPE_CHECKING:
+    from wg_utilities.clients.monzo import Pot
 
 
 class CreditCardPotManager(Hass):  # type: ignore[misc]
@@ -30,7 +32,7 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
 
         if not (credit_card_pot := self.client.get_pot_by_name("credit cards")):
             self.error("Could not find credit card pot")
-            raise RuntimeError("Could not find credit card pot")  # noqa: TRY003
+            raise RuntimeError("Could not find credit card pot")
 
         self.credit_card_pot = credit_card_pot
 

@@ -6,11 +6,13 @@ from hashlib import md5
 from json import dumps
 from logging import NOTSET, getLevelNamesMapping
 from pathlib import Path
-from typing import Final, Literal, TypedDict
+from typing import TYPE_CHECKING, Final, Literal, TypedDict
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
 from wg_utilities.loggers import WarehouseHandler, add_warehouse_handler
-from wg_utilities.loggers.item_warehouse.base_handler import LogPayload
+
+if TYPE_CHECKING:
+    from wg_utilities.loggers.item_warehouse.base_handler import LogPayload
 
 FILE_PATH: Final[Path] = Path(__file__)
 
