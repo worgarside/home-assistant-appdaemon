@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
+from requests import HTTPError
 from wg_utilities.clients import TrueLayerClient
 from wg_utilities.clients.truelayer import Account, Bank, Card
 from wg_utilities.loggers import add_warehouse_handler
@@ -111,24 +112,36 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         )
 
         for entity_ref, entity_id in self.args.get(f"{entity_type}_ids", {}).items():
-            if entity_id is None:
-                if len(entities := list_entities()) == 1:
-                    entity: Account | Card = entities[0]
-                else:
+            try:
+                if entity_id is None:
+                    if len(entities := list_entities()) == 1:
+                        entity: Account | Card = entities[0]
+                    else:
+                        self.error(
+                            "Multiple %s found for `%s`, please specify an ID",
+                            entity_type.title(),
+                            entity_ref,
+                        )
+                        continue
+                elif (entity := get_entity_by_id(entity_id)) is None:  # type: ignore[assignment]
                     self.error(
-                        "Multiple %s found for `%s`, please specify an ID",
+                        "%s not found for `%s` with ID `%s`",
                         entity_type.title(),
                         entity_ref,
+                        entity_id,
                     )
                     continue
-            elif (entity := get_entity_by_id(entity_id)) is None:  # type: ignore[assignment]
-                self.error(
-                    "%s not found for `%s` with ID `%s`",
-                    entity_type.title(),
-                    entity_ref,
-                    entity_id,
-                )
-                continue
+            except HTTPError as err:
+                if err.response.url == "https://auth.truelayer.com/connect/token":
+                    self.call_service(
+                        "script/turn_on",
+                        entity_id="script.notify_will",
+                        clear_notification=True,
+                        message=f"TrueLayer access token for {self.bank} has expired",
+                        notification_id=f"truelayer_access_token_{self.bank.name.lower()}_expired",
+                        mobile_notification_icon="mdi:key-alert-outline",
+                    )
+                raise
 
             self.entities[entity_type][entity_ref] = entity  # type: ignore[assignment]
 
