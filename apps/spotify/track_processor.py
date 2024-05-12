@@ -332,7 +332,7 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
             )
         else:
             track_id = self.get_state(
-                "media_player.spotify_will_garside",
+                "media_player.spotify_will",
                 attribute="media_content_id",
             ).replace("spotify:track:", "")
 
