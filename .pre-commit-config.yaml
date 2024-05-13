@@ -78,7 +78,7 @@ repos:
           - pydantic==2.5.3
           - pygithub==2.3.0
           - types-Pillow
-          - wg-utilities==5.15.1
+          - wg-utilities==5.15.3
 
   - repo: https://github.com/pre-commit/pygrep-hooks
     rev: v1.10.0
