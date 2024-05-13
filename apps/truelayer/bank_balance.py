@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from http import HTTPStatus
 from json import dumps
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -132,15 +133,27 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
                     )
                     continue
             except HTTPError as err:
-                if err.response.url == "https://auth.truelayer.com/connect/token":
+                if (
+                    err.response.url == self.client.ACCESS_TOKEN_ENDPOINT
+                    and err.response.status_code == HTTPStatus.BAD_REQUEST
+                ):
                     self.call_service(
                         "script/turn_on",
                         entity_id="script.notify_will",
-                        clear_notification=True,
-                        message=f"TrueLayer access token for {self.bank} has expired",
-                        notification_id=f"truelayer_access_token_{self.bank.name.lower()}_expired",
-                        mobile_notification_icon="mdi:key-alert-outline",
+                        variables={
+                            "clear_notification": True,
+                            "message": f"TrueLayer access token for {self.bank} has expired!",
+                            "notification_id": f"truelayer_access_token_{self.bank.name.lower()}_expired",
+                            "mobile_notification_icon": "mdi:key-alert-outline",
+                        },
                     )
+                self.error(
+                    "Error response (%s %s) from %s: %s",
+                    err.response.status_code,
+                    err.response.reason,
+                    err.response.url,
+                    err.response.text,
+                )
                 raise
 
             self.entities[entity_type][entity_ref] = entity  # type: ignore[assignment]
