@@ -56,19 +56,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         for entity_type in EntityType:
             self._initialize_entities(entity_type)
 
-        self.log(dumps(self.entities, default=str))
-
-        self.register_service(
-            f"appdaemon/refresh_{self.bank.lower()}_access_token",
-            self.refresh_access_token,
-        )
-
-        self.log(
-            "Initialized for bank %s, with %i accounts and %i cards",
-            self.bank,
-            len(self.entities[EntityType.ACCOUNT]),
-            len(self.entities[EntityType.CARD]),
-        )
+        self.log("Initialized: %s", dumps(self.entities, default=str))
 
         self.listen_state(
             self.consume_auth_token,
@@ -187,6 +175,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
             "state": self.state_token,
             "access_type": "offline",
             "prompt": "consent",
+            "scope": self.client.scopes,
         }
 
         auth_link = self.client.auth_link_base + "?" + parse.urlencode(auth_link_params)
