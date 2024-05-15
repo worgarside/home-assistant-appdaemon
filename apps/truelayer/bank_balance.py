@@ -175,7 +175,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
             "state": self.state_token,
             "access_type": "offline",
             "prompt": "consent",
-            "scope": self.client.scopes,
+            "scope": " ".join(self.client.scopes),
         }
 
         auth_link = self.client.auth_link_base + "?" + parse.urlencode(auth_link_params)
