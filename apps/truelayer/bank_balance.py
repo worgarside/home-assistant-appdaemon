@@ -53,10 +53,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         )
 
         self.entities = {}
-        for entity_type in EntityType:
-            self._initialize_entities(entity_type)
-
-        self.log("Initialized: %s", dumps(self.entities, default=str))
+        self.initialize_entities()
 
         self.listen_state(
             self.consume_auth_token,
@@ -92,6 +89,13 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
             )
 
         return update_entity_balances
+
+    def initialize_entities(self) -> None:
+        """Initialize the TrueLayer cards and/or accounts."""
+        for entity_type in EntityType:
+            self._initialize_entities(entity_type)
+
+        self.log("Initialized: %s", dumps(self.entities, default=str))
 
     def _initialize_entities(
         self,
@@ -242,3 +246,6 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
             res.reason,
             res.text,
         )
+
+        if res.status_code == HTTPStatus.OK:
+            self.initialize_entities()
