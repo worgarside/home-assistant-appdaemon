@@ -6,6 +6,9 @@ from enum import StrEnum
 from http import HTTPStatus
 from json import dumps
 from pathlib import Path
+from random import choice
+from string import ascii_letters
+from time import sleep
 from typing import TYPE_CHECKING, Any, Literal
 from urllib import parse
 
@@ -47,7 +50,6 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
             client_secret=self.args["client_secret"],
             creds_cache_dir=Path("/homeassistant/.wg-utilities/oauth_credentials"),
             bank=self.bank,
-            headless_auth_link_callback=self.send_auth_link_notification,
         )
 
         self.entities = {}
@@ -156,7 +158,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
                     raise
 
                 try:
-                    self.client.run_first_time_login()
+                    self.run_first_time_login()
                 except Exception as login_err:
                     raise login_err from err
 
@@ -172,9 +174,24 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
                 ", ".join(self.entities[entity_type].keys()),
             )
 
-    def send_auth_link_notification(self, auth_link: str) -> None:
-        """Send a notification with the auth link."""
-        self.state_token = parse.parse_qs(parse.urlparse(auth_link).query)["state"][0]
+    def run_first_time_login(self) -> None:
+        """Run the first time login process."""
+        self.log("Running first time login")
+
+        self.state_token = "".join(choice(ascii_letters) for _ in range(32))  # noqa: S311
+
+        auth_link_params = {
+            "client_id": self.client.client_id,
+            "redirect_uri": "https://console.truelayer.com/redirect-page",
+            "response_type": "code",
+            "state": self.state_token,
+            "access_type": "offline",
+            "prompt": "consent",
+        }
+
+        auth_link = self.client.auth_link_base + "?" + parse.urlencode(auth_link_params)
+
+        self.log(auth_link)
 
         self.call_service(
             "script/turn_on",
@@ -184,7 +201,9 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
                 "message": f"TrueLayer access token for {self.bank} has expired!",
                 "notification_id": f"truelayer_access_token_{self.bank.name.lower()}_expired",
                 "mobile_notification_icon": "mdi:key-alert-outline",
-                "actions": [{"action": "URI", "title": "Auth Link", "uri": auth_link}],
+                "actions": dumps(
+                    [{"action": "URI", "title": "Auth Link", "uri": auth_link}],
+                ),
             },
         )
 
@@ -220,10 +239,17 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
 
         self.log("Consuming auth token %s", new)
 
+        self.client.temp_auth_server.start_server()
+        sleep(2)
         res = get(
             self.client.temp_auth_server.get_auth_code_url,
             timeout=10,
             params={"code": new, "state": self.state_token},
         )
 
-        self.log("Response from auth code endpoint: %s", res.text)
+        self.log(
+            "Response from auth code endpoint (%s %s): %s",
+            res.status_code,
+            res.reason,
+            res.text,
+        )
