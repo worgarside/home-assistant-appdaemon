@@ -6,16 +6,19 @@ from enum import StrEnum
 from http import HTTPStatus
 from json import dumps
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
+from urllib import parse
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
-from requests import HTTPError
+from requests import HTTPError, get
 from wg_utilities.clients import TrueLayerClient
 from wg_utilities.clients.truelayer import Account, Bank, Card
 from wg_utilities.loggers import add_warehouse_handler
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+TrueLayerClient.HEADLESS_MODE = True
 
 
 class EntityType(StrEnum):
@@ -31,6 +34,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
     bank: Bank
     client: TrueLayerClient
     entities: dict[EntityType, dict[str, Account] | dict[str, Card]]
+    state_token: str | None
 
     def initialize(self) -> None:
         """Initialize the app."""
@@ -42,8 +46,8 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
             client_id=self.args["client_id"],
             client_secret=self.args["client_secret"],
             creds_cache_dir=Path("/homeassistant/.wg-utilities/oauth_credentials"),
-            use_existing_credentials_only=True,
             bank=self.bank,
+            headless_auth_link_callback=self.send_auth_link_notification,
         )
 
         self.entities = {}
@@ -62,6 +66,11 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
             self.bank,
             len(self.entities[EntityType.ACCOUNT]),
             len(self.entities[EntityType.CARD]),
+        )
+
+        self.listen_state(
+            self.consume_auth_token,
+            f"input_text.truelayer_auth_token_{self.bank.name.lower()}",
         )
 
     def _callback_factory(
@@ -133,28 +142,23 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
                     )
                     continue
             except HTTPError as err:
-                if (
+                if not (
                     err.response.url == self.client.ACCESS_TOKEN_ENDPOINT
                     and err.response.status_code == HTTPStatus.BAD_REQUEST
                 ):
-                    self.call_service(
-                        "script/turn_on",
-                        entity_id="script.notify_will",
-                        variables={
-                            "clear_notification": True,
-                            "message": f"TrueLayer access token for {self.bank} has expired!",
-                            "notification_id": f"truelayer_access_token_{self.bank.name.lower()}_expired",
-                            "mobile_notification_icon": "mdi:key-alert-outline",
-                        },
+                    self.error(
+                        "Error response (%s %s) from %s: %s",
+                        err.response.status_code,
+                        err.response.reason,
+                        err.response.url,
+                        err.response.text,
                     )
-                self.error(
-                    "Error response (%s %s) from %s: %s",
-                    err.response.status_code,
-                    err.response.reason,
-                    err.response.url,
-                    err.response.text,
-                )
-                raise
+                    raise
+
+                try:
+                    self.client.run_first_time_login()
+                except Exception as login_err:
+                    raise login_err from err
 
             self.entities[entity_type][entity_ref] = entity  # type: ignore[assignment]
 
@@ -167,6 +171,22 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
                 entity_type,
                 ", ".join(self.entities[entity_type].keys()),
             )
+
+    def send_auth_link_notification(self, auth_link: str) -> None:
+        """Send a notification with the auth link."""
+        self.state_token = parse.parse_qs(parse.urlparse(auth_link).query)["state"][0]
+
+        self.call_service(
+            "script/turn_on",
+            entity_id="script.notify_will",
+            variables={
+                "clear_notification": True,
+                "message": f"TrueLayer access token for {self.bank} has expired!",
+                "notification_id": f"truelayer_access_token_{self.bank.name.lower()}_expired",
+                "mobile_notification_icon": "mdi:key-alert-outline",
+                "actions": [{"action": "URI", "title": "Auth Link", "uri": auth_link}],
+            },
+        )
 
     def error(self, msg: str, *args: Any, **kwargs: Any) -> None:
         """Override the error method to prepend the bank name."""
@@ -182,3 +202,28 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
 
         self.client.refresh_access_token()
         self.log("Refreshed access token")
+
+    def consume_auth_token(
+        self,
+        entity: str,
+        attribute: Literal["state"],
+        old: str,
+        new: str,
+        pin_app: bool,  # noqa: FBT001
+        **kwargs: dict[str, Any],
+    ) -> None:
+        """Consume the auth token and get the access token."""
+        _ = entity, attribute, old, pin_app, kwargs
+
+        if not new:
+            return
+
+        self.log("Consuming auth token %s", new)
+
+        res = get(
+            self.client.temp_auth_server.get_auth_code_url,
+            timeout=10,
+            params={"code": new, "state": self.state_token},
+        )
+
+        self.log("Response from auth code endpoint: %s", res.text)
