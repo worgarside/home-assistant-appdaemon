@@ -153,6 +153,8 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
                     self.run_first_time_login()
                 except Exception as login_err:
                     raise login_err from err
+                else:
+                    return
 
             self.entities[entity_type][entity_ref] = entity  # type: ignore[assignment]
 
