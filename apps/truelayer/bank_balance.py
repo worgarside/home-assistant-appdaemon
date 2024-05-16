@@ -155,7 +155,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
                     raise
 
                 try:
-                    self.run_first_time_login()
+                    self.send_auth_link_notification()
                 except Exception as login_err:
                     raise login_err from err
                 else:
@@ -175,7 +175,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
 
         self.clear_notifications()
 
-    def run_first_time_login(self) -> None:
+    def send_auth_link_notification(self) -> None:
         """Run the first time login process."""
         self.log("Running first time login")
 
@@ -244,6 +244,10 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         _ = entity, attribute, old, pin_app, kwargs
 
         if not new:
+            return
+
+        if len(new) == 1:
+            self.send_auth_link_notification()
             return
 
         self.log("Consuming auth code %s", new)
