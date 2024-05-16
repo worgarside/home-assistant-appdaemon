@@ -8,13 +8,13 @@ from json import dumps
 from pathlib import Path
 from random import choice
 from string import ascii_letters
-from time import sleep
 from typing import TYPE_CHECKING, Any, Literal
 from urllib import parse
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
-from requests import HTTPError, get
+from requests import HTTPError
 from wg_utilities.clients import TrueLayerClient
+from wg_utilities.clients.oauth_client import OAuthCredentials
 from wg_utilities.clients.truelayer import Account, Bank, Card
 from wg_utilities.loggers import add_warehouse_handler
 
@@ -55,9 +55,13 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         self.entities = {}
         self.initialize_entities()
 
+        self.auth_code_input_text = (
+            f"input_text.truelayer_auth_token_{self.bank.name.lower()}"
+        )
+
         self.listen_state(
             self.consume_auth_token,
-            f"input_text.truelayer_auth_token_{self.bank.name.lower()}",
+            self.auth_code_input_text,
         )
 
     def _callback_factory(
@@ -197,7 +201,14 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
                 "notification_id": f"truelayer_access_token_{self.bank.name.lower()}_expired",
                 "mobile_notification_icon": "mdi:key-alert-outline",
                 "actions": dumps(
-                    [{"action": "URI", "title": "Auth Link", "uri": auth_link}],
+                    [
+                        {"action": "URI", "title": "Auth Link", "uri": auth_link},
+                        {
+                            "action": "URI",
+                            "title": "Submit Code",
+                            "uri": f"entityId:{self.auth_code_input_text}",
+                        },
+                    ],
                 ),
             },
         )
@@ -232,22 +243,20 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         if not new:
             return
 
-        self.log("Consuming auth token %s", new)
+        self.log("Consuming auth code %s", new)
 
-        self.client.temp_auth_server.start_server()
-        sleep(2)
-        res = get(
-            self.client.temp_auth_server.get_auth_code_url,
-            timeout=10,
-            params={"code": new, "state": self.state_token},
+        credentials = self.client.post_json_response(
+            self.client.access_token_endpoint,
+            json={
+                "code": new,
+                "grant_type": "authorization_code",
+                "client_id": self.client.client_id,
+                "client_secret": self.client.client_secret,
+                "redirect_uri": self.client.oauth_redirect_uri_override,
+            },
+            header_overrides={},
         )
 
-        self.log(
-            "Response from auth code endpoint (%s %s): %s",
-            res.status_code,
-            res.reason,
-            res.text,
-        )
+        self.client.credentials = OAuthCredentials.parse_first_time_login(credentials)  # type: ignore[arg-type]
 
-        if res.status_code == HTTPStatus.OK:
-            self.initialize_entities()
+        self.initialize_entities()
