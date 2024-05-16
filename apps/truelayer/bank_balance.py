@@ -173,6 +173,8 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
                 ", ".join(self.entities[entity_type].keys()),
             )
 
+        self.clear_notifications()
+
     def run_first_time_login(self) -> None:
         """Run the first time login process."""
         self.log("Running first time login")
@@ -281,6 +283,10 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
             value="",
         )
 
+        self.clear_notifications()
+
+    def clear_notifications(self) -> None:
+        """Clear the notification."""
         self.call_service(
             entity_id="script.notify_will",
             variables={
