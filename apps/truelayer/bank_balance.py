@@ -273,3 +273,9 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         self.client.credentials = OAuthCredentials.parse_first_time_login(credentials)
 
         self.initialize_entities()
+
+        self.call_service(
+            "input_text/set_value",
+            entity_id=self.auth_code_input_text,
+            value="",
+        )
