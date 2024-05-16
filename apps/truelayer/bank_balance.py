@@ -278,7 +278,6 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         self.initialize_entities()
 
         self.set_textvalue(
-            "input_text/set_value",
             entity_id=self.auth_code_input_text,
             value="",
         )
@@ -288,6 +287,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
     def clear_notifications(self) -> None:
         """Clear the notification."""
         self.call_service(
+            "script/turn_on",
             entity_id="script.notify_will",
             variables={
                 "clear_notification": True,
