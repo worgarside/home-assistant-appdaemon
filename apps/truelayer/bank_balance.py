@@ -47,6 +47,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         self.auth_code_input_text = (
             f"input_text.truelayer_auth_token_{self.bank.name.lower()}"
         )
+        self.redirect_uri = "https://console.truelayer.com/redirect-page"
 
         self.client = TrueLayerClient(
             client_id=self.args["client_id"],
@@ -179,7 +180,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
 
         auth_link_params = {
             "client_id": self.client.client_id,
-            "redirect_uri": "https://console.truelayer.com/redirect-page",
+            "redirect_uri": self.redirect_uri,
             "response_type": "code",
             "state": self.state_token,
             "access_type": "offline",
@@ -252,7 +253,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
                     "grant_type": "authorization_code",
                     "client_id": self.client.client_id,
                     "client_secret": self.client.client_secret,
-                    "redirect_uri": self.client.oauth_redirect_uri_override,
+                    "redirect_uri": self.redirect_uri,
                 },
                 header_overrides={},
             )
