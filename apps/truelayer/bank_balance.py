@@ -173,7 +173,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
                 ", ".join(self.entities[entity_type].keys()),
             )
 
-        self.clear_notifications()
+            self.clear_notifications()
 
     def send_auth_link_notification(self) -> None:
         """Run the first time login process."""
