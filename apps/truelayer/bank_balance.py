@@ -48,6 +48,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
             f"input_text.truelayer_auth_token_{self.bank.name.lower()}"
         )
         self.redirect_uri = "https://console.truelayer.com/redirect-page"
+        self.notification_id = f"truelayer_access_token_{self.bank.name.lower()}_expired"
 
         self.client = TrueLayerClient(
             client_id=self.args["client_id"],
@@ -274,8 +275,16 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
 
         self.initialize_entities()
 
-        self.call_service(
+        self.set_textvalue(
             "input_text/set_value",
             entity_id=self.auth_code_input_text,
             value="",
+        )
+
+        self.call_service(
+            entity_id="script.notify_will",
+            variables={
+                "clear_notification": True,
+                "notification_id": self.notification_id,
+            },
         )
