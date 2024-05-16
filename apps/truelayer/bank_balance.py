@@ -244,17 +244,27 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
 
         self.log("Consuming auth code %s", new)
 
-        credentials = self.client.post_json_response(
-            self.client.access_token_endpoint,
-            json={
-                "code": new,
-                "grant_type": "authorization_code",
-                "client_id": self.client.client_id,
-                "client_secret": self.client.client_secret,
-                "redirect_uri": self.client.oauth_redirect_uri_override,
-            },
-            header_overrides={},
-        )
+        try:
+            credentials = self.client.post_json_response(
+                self.client.access_token_endpoint,
+                json={
+                    "code": new,
+                    "grant_type": "authorization_code",
+                    "client_id": self.client.client_id,
+                    "client_secret": self.client.client_secret,
+                    "redirect_uri": self.client.oauth_redirect_uri_override,
+                },
+                header_overrides={},
+            )
+        except HTTPError as err:
+            self.error(
+                "Error response (%s %s) from %s: %s",
+                err.response.status_code,
+                err.response.reason,
+                err.response.url,
+                err.response.text,
+            )
+            return
 
         self.client.credentials = OAuthCredentials.parse_first_time_login(credentials)  # type: ignore[arg-type]
 
