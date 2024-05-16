@@ -44,6 +44,9 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         add_warehouse_handler(self.err)
 
         self.bank = Bank[self.args["bank_ref"].upper().replace(" ", "_")]
+        self.auth_code_input_text = (
+            f"input_text.truelayer_auth_token_{self.bank.name.lower()}"
+        )
 
         self.client = TrueLayerClient(
             client_id=self.args["client_id"],
@@ -54,10 +57,6 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
 
         self.entities = {}
         self.initialize_entities()
-
-        self.auth_code_input_text = (
-            f"input_text.truelayer_auth_token_{self.bank.name.lower()}"
-        )
 
         self.listen_state(
             self.consume_auth_token,
