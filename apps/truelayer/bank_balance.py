@@ -246,7 +246,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         self.log("Consuming auth code %s", new)
 
         try:
-            credentials = self.client.post_json_response(
+            credentials: dict[str, Any] = self.client.post_json_response(  # type: ignore[assignment]
                 self.client.access_token_endpoint,
                 json={
                     "code": new,
@@ -267,6 +267,9 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
             )
             return
 
-        self.client.credentials = OAuthCredentials.parse_first_time_login(credentials)  # type: ignore[arg-type]
+        credentials["client_id"] = self.client.client_id
+        credentials["client_secret"] = self.client.client_secret
+
+        self.client.credentials = OAuthCredentials.parse_first_time_login(credentials)
 
         self.initialize_entities()
