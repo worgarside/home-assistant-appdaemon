@@ -3,17 +3,25 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from http import HTTPStatus
 from json import dumps
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from random import choice
+from string import ascii_letters
+from typing import TYPE_CHECKING, Any, Literal
+from urllib import parse
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
+from requests import HTTPError
 from wg_utilities.clients import TrueLayerClient
+from wg_utilities.clients.oauth_client import OAuthCredentials
 from wg_utilities.clients.truelayer import Account, Bank, Card
 from wg_utilities.loggers import add_warehouse_handler
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+TrueLayerClient.HEADLESS_MODE = True
 
 
 class EntityType(StrEnum):
@@ -29,37 +37,32 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
     bank: Bank
     client: TrueLayerClient
     entities: dict[EntityType, dict[str, Account] | dict[str, Card]]
+    state_token: str | None
 
     def initialize(self) -> None:
         """Initialize the app."""
         add_warehouse_handler(self.err)
 
         self.bank = Bank[self.args["bank_ref"].upper().replace(" ", "_")]
+        self.auth_code_input_text = (
+            f"input_text.truelayer_auth_token_{self.bank.name.lower()}"
+        )
+        self.redirect_uri = "https://console.truelayer.com/redirect-page"
+        self.notification_id = f"truelayer_access_token_{self.bank.name.lower()}_expired"
 
         self.client = TrueLayerClient(
             client_id=self.args["client_id"],
             client_secret=self.args["client_secret"],
             creds_cache_dir=Path("/homeassistant/.wg-utilities/oauth_credentials"),
-            use_existing_credentials_only=True,
             bank=self.bank,
         )
 
         self.entities = {}
-        for entity_type in EntityType:
-            self._initialize_entities(entity_type)
+        self.initialize_entities()
 
-        self.log(dumps(self.entities, default=str))
-
-        self.register_service(
-            f"appdaemon/refresh_{self.bank.lower()}_access_token",
-            self.refresh_access_token,
-        )
-
-        self.log(
-            "Initialized for bank %s, with %i accounts and %i cards",
-            self.bank,
-            len(self.entities[EntityType.ACCOUNT]),
-            len(self.entities[EntityType.CARD]),
+        self.listen_state(
+            self.consume_auth_token,
+            self.auth_code_input_text,
         )
 
     def _callback_factory(
@@ -92,6 +95,13 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
 
         return update_entity_balances
 
+    def initialize_entities(self) -> None:
+        """Initialize the TrueLayer cards and/or accounts."""
+        for entity_type in EntityType:
+            self._initialize_entities(entity_type)
+
+        self.log("Initialized: %s", dumps(self.entities, default=str))
+
     def _initialize_entities(
         self,
         entity_type: EntityType,
@@ -111,24 +121,45 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         )
 
         for entity_ref, entity_id in self.args.get(f"{entity_type}_ids", {}).items():
-            if entity_id is None:
-                if len(entities := list_entities()) == 1:
-                    entity: Account | Card = entities[0]
-                else:
+            try:
+                if entity_id is None:
+                    if len(entities := list_entities()) == 1:
+                        entity: Account | Card = entities[0]
+                    else:
+                        self.error(
+                            "Multiple %s found for `%s`, please specify an ID",
+                            entity_type.title(),
+                            entity_ref,
+                        )
+                        continue
+                elif (entity := get_entity_by_id(entity_id)) is None:  # type: ignore[assignment]
                     self.error(
-                        "Multiple %s found for `%s`, please specify an ID",
+                        "%s not found for `%s` with ID `%s`",
                         entity_type.title(),
                         entity_ref,
+                        entity_id,
                     )
                     continue
-            elif (entity := get_entity_by_id(entity_id)) is None:  # type: ignore[assignment]
-                self.error(
-                    "%s not found for `%s` with ID `%s`",
-                    entity_type.title(),
-                    entity_ref,
-                    entity_id,
-                )
-                continue
+            except HTTPError as err:
+                if not (
+                    err.response.url == self.client.ACCESS_TOKEN_ENDPOINT
+                    and err.response.status_code == HTTPStatus.BAD_REQUEST
+                ):
+                    self.error(
+                        "Error response (%s %s) from %s: %s",
+                        err.response.status_code,
+                        err.response.reason,
+                        err.response.url,
+                        err.response.text,
+                    )
+                    raise
+
+                try:
+                    self.send_auth_link_notification()
+                except Exception as login_err:
+                    raise login_err from err
+                else:
+                    return
 
             self.entities[entity_type][entity_ref] = entity  # type: ignore[assignment]
 
@@ -141,6 +172,49 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
                 entity_type,
                 ", ".join(self.entities[entity_type].keys()),
             )
+
+            self.clear_notifications()
+
+    def send_auth_link_notification(self) -> None:
+        """Run the first time login process."""
+        self.log("Running first time login")
+
+        self.state_token = "".join(choice(ascii_letters) for _ in range(32))  # noqa: S311
+
+        auth_link_params = {
+            "client_id": self.client.client_id,
+            "redirect_uri": self.redirect_uri,
+            "response_type": "code",
+            "state": self.state_token,
+            "access_type": "offline",
+            "prompt": "consent",
+            "scope": " ".join(self.client.scopes),
+        }
+
+        auth_link = self.client.auth_link_base + "?" + parse.urlencode(auth_link_params)
+
+        self.log(auth_link)
+
+        self.call_service(
+            "script/turn_on",
+            entity_id="script.notify_will",
+            variables={
+                "clear_notification": True,
+                "message": f"TrueLayer access token for {self.bank} has expired!",
+                "notification_id": f"truelayer_access_token_{self.bank.name.lower()}_expired",
+                "mobile_notification_icon": "mdi:key-alert-outline",
+                "actions": dumps(
+                    [
+                        {"action": "URI", "title": "Auth Link", "uri": auth_link},
+                        {
+                            "action": "URI",
+                            "title": "Submit Code",
+                            "uri": f"entityId:{self.auth_code_input_text}",
+                        },
+                    ],
+                ),
+            },
+        )
 
     def error(self, msg: str, *args: Any, **kwargs: Any) -> None:
         """Override the error method to prepend the bank name."""
@@ -156,3 +230,71 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
 
         self.client.refresh_access_token()
         self.log("Refreshed access token")
+
+    def consume_auth_token(
+        self,
+        entity: str,
+        attribute: Literal["state"],
+        old: str,
+        new: str,
+        pin_app: bool,  # noqa: FBT001
+        **kwargs: dict[str, Any],
+    ) -> None:
+        """Consume the auth token and get the access token."""
+        _ = entity, attribute, old, pin_app, kwargs
+
+        if not new:
+            return
+
+        if len(new) == 1:
+            self.send_auth_link_notification()
+            return
+
+        self.log("Consuming auth code %s", new)
+
+        try:
+            credentials: dict[str, Any] = self.client.post_json_response(  # type: ignore[assignment]
+                self.client.access_token_endpoint,
+                json={
+                    "code": new,
+                    "grant_type": "authorization_code",
+                    "client_id": self.client.client_id,
+                    "client_secret": self.client.client_secret,
+                    "redirect_uri": self.redirect_uri,
+                },
+                header_overrides={},
+            )
+        except HTTPError as err:
+            self.error(
+                "Error response (%s %s) from %s: %s",
+                err.response.status_code,
+                err.response.reason,
+                err.response.url,
+                err.response.text,
+            )
+            return
+
+        credentials["client_id"] = self.client.client_id
+        credentials["client_secret"] = self.client.client_secret
+
+        self.client.credentials = OAuthCredentials.parse_first_time_login(credentials)
+
+        self.initialize_entities()
+
+        self.set_textvalue(
+            entity_id=self.auth_code_input_text,
+            value="",
+        )
+
+        self.clear_notifications()
+
+    def clear_notifications(self) -> None:
+        """Clear the notification."""
+        self.call_service(
+            "script/turn_on",
+            entity_id="script.notify_will",
+            variables={
+                "clear_notification": True,
+                "notification_id": self.notification_id,
+            },
+        )

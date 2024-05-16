@@ -75,9 +75,10 @@ repos:
           - --show-error-codes
         additional_dependencies:
           - gitpython==3.1.43
-          - pydantic==2.5.3
+          - pydantic==2.7.1
           - pygithub==2.3.0
           - types-Pillow
+          - types-requests
           - wg-utilities==5.15.3
 
   - repo: https://github.com/pre-commit/pygrep-hooks

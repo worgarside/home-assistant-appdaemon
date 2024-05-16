@@ -13,7 +13,7 @@ gitpython = "^3.1.43"
 pillow = "^10.3.0"
 
 [tool.poetry.group.dev.dependencies]
-appdaemon = "^4.4.2"
+appdaemon = {git = "https://github.com/AppDaemon/appdaemon.git"}
 
 [tool.mypy]
 plugins = "pydantic.mypy"
