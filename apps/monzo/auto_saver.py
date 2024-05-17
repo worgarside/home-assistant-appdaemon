@@ -75,7 +75,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         self.auth_code_input_text_lookup: dict[MonzoClient | TrueLayerClient, str] = {
             self.monzo_client: "input_text.monzo_auth_token_auto_saver",
-            self.truelayer_client: f"input_text.truelayer_{self.truelayer_client.bank.name.lower()}_auto_saver_auth_token",  # noqa: E501
+            self.truelayer_client: f"input_text.truelayer_auth_token_{self.truelayer_client.bank.name.lower()}_auto_saver",  # noqa: E501
         }
 
         self.redirect_uri_lookup: dict[MonzoClient | TrueLayerClient, str] = {
