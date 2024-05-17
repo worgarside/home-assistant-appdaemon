@@ -378,7 +378,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
         self.initialize_entities()
 
         self.set_textvalue(
-            entity_id=self.auth_code_input_text,
+            entity_id=self.auth_code_input_text_lookup[client],
             value="",
         )
 
