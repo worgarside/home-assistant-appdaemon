@@ -6,8 +6,6 @@ from enum import StrEnum
 from http import HTTPStatus
 from json import dumps
 from pathlib import Path
-from random import choice
-from string import ascii_letters
 from typing import TYPE_CHECKING, Any, Literal
 from urllib import parse
 
@@ -37,7 +35,6 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
     bank: Bank
     client: TrueLayerClient
     entities: dict[EntityType, dict[str, Account] | dict[str, Card]]
-    state_token: str | None
 
     def initialize(self) -> None:
         """Initialize the app."""
@@ -179,13 +176,11 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         """Run the first time login process."""
         self.log("Running first time login")
 
-        self.state_token = "".join(choice(ascii_letters) for _ in range(32))  # noqa: S311
-
         auth_link_params = {
             "client_id": self.client.client_id,
             "redirect_uri": self.redirect_uri,
             "response_type": "code",
-            "state": self.state_token,
+            "state": "abcdefghijklmnopqrstuvwxyz",
             "access_type": "offline",
             "prompt": "consent",
             "scope": " ".join(self.client.scopes),
@@ -200,6 +195,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
             entity_id="script.notify_will",
             variables={
                 "clear_notification": True,
+                "title": f"{self.bank} Access Token Expired",
                 "message": f"TrueLayer access token for {self.bank} has expired!",
                 "notification_id": f"truelayer_access_token_{self.bank.name.lower()}_expired",
                 "mobile_notification_icon": "mdi:key-alert-outline",
