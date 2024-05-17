@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
-from json import dumps
+from json import JSONDecodeError, dumps
 from pathlib import Path
 from re import IGNORECASE, Pattern
 from re import compile as re_compile
+from time import sleep
 from typing import TYPE_CHECKING, Any, Final, Literal
 from urllib import parse
 
@@ -80,7 +81,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         self.redirect_uri_lookup: dict[MonzoClient | TrueLayerClient, str] = {
             self.truelayer_client: "https://console.truelayer.com/redirect-page",
-            self.monzo_client: "http://localhost:5000/get_auth_code",
+            self.monzo_client: "http://localhost:5001/get_auth_code",
         }
 
         self.input_text_client_lookup: dict[str, MonzoClient | TrueLayerClient] = {
@@ -134,6 +135,30 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
     def initialize_entities(self) -> None:
         """Initialize the entities."""
+        if not hasattr(self, "amex_card"):
+            self.initialize_amex()
+
+        if not hasattr(self, "savings_pot"):
+            self.initialize_monzo()
+
+        if not hasattr(self, "spotify_client"):
+            self.spotify_client = SpotifyClient(
+                client_id=self.args["spotify_client_id"],
+                client_secret=self.args["spotify_client_secret"],
+                creds_cache_dir=Path("/homeassistant/.wg-utilities/oauth_credentials"),
+                use_existing_credentials_only=True,
+            )
+
+        self.calculate(
+            "",
+            "state",
+            "",
+            "-",
+            {},
+        )
+
+    def initialize_amex(self) -> None:
+        """Initialize the Amex card."""
         try:
             self.amex_card = self.truelayer_client.list_cards()[0]
         except HTTPError as err:
@@ -148,28 +173,31 @@ class AutoSaver(Hass):  # type: ignore[misc]
                 else:
                     return
 
-        if not (
-            savings_pot := self.monzo_client.get_pot_by_id(self.args["savings_pot_id"])
-        ):
+    def initialize_monzo(self, *, send_notification: bool = True) -> None:
+        """Initialize the Monzo client."""
+        try:
+            pot = self.monzo_client.get_pot_by_id(self.args["savings_pot_id"])
+        except HTTPError as err:
+            try:
+                data = err.response.json()
+            except JSONDecodeError:
+                self.error("Error response from Monzo: %s", err.response.text)
+                raise err from None
+
+            if (
+                data.get("code") == "forbidden.insufficient_permissions"
+                and send_notification
+            ):
+                self.send_auth_link_notification(self.monzo_client)
+
+            self.error(err.response.text)
+            raise
+
+        if not pot:
             self.error("Could not find savings pot")
             raise RuntimeError("Could not find savings pot")
 
-        self.savings_pot = savings_pot
-
-        self.spotify_client = SpotifyClient(
-            client_id=self.args["spotify_client_id"],
-            client_secret=self.args["spotify_client_secret"],
-            creds_cache_dir=Path("/homeassistant/.wg-utilities/oauth_credentials"),
-            use_existing_credentials_only=True,
-        )
-
-        self.calculate(
-            "",
-            "state",
-            "",
-            "-",
-            {},
-        )
+        self.savings_pot = pot
 
     def _get_percentage_of_debit_transactions_value(self) -> tuple[int, list[str]]:
         """Get the percentage of income to save."""
@@ -254,7 +282,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
         liked_tracks = [
             track
             for track in self.spotify_client.current_user.get_recently_liked_tracks(
-                day_limit=(datetime.utcnow() - self.last_auto_save).days + 1,
+                day_limit=(datetime.now(UTC) - self.last_auto_save).days + 1,
             )
             if track.metadata["saved_at"] >= self.last_auto_save
         ]
@@ -346,17 +374,23 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         self.log("Consuming auth code %s", new)
 
+        content_type = (
+            "application/x-www-form-urlencoded"
+            if isinstance(client, MonzoClient)
+            else "application/json"
+        )
+
         try:
             credentials: dict[str, Any] = client.post_json_response(  # type: ignore[assignment]
                 client.access_token_endpoint,
-                json={
+                data={
                     "code": new,
                     "grant_type": "authorization_code",
                     "client_id": client.client_id,
                     "client_secret": client.client_secret,
                     "redirect_uri": self.redirect_uri_lookup[client],
                 },
-                header_overrides={},
+                header_overrides={"Content-Type": content_type},
             )
         except HTTPError as err:
             self.error(
@@ -373,7 +407,15 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         client.credentials = OAuthCredentials.parse_first_time_login(credentials)
 
-        self.initialize_entities()
+        self.log("Successfully authenticated %s", client.__class__.__name__)
+
+        if isinstance(client, MonzoClient):
+            for _ in range(12):
+                sleep(10)
+
+                self.initialize_monzo(send_notification=False)
+        else:
+            self.initialize_amex()
 
         self.set_textvalue(
             entity_id=self.auth_code_input_text_lookup[client],
@@ -433,13 +475,15 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         auth_link_params = {
             "client_id": client.client_id,
-            "redirect_uri": self.redirect_uri_lookup[client],
+            "redirect_uri": "https://console.truelayer.com/redirect-page",
             "response_type": "code",
             "state": "abcdefghijklmnopqrstuvwxyz",
             "access_type": "offline",
             "prompt": "consent",
-            "scope": " ".join(client.scopes),
         }
+
+        if client.scopes:
+            auth_link_params["scope"] = " ".join(client.scopes)
 
         auth_link = client.auth_link_base + "?" + parse.urlencode(auth_link_params)
 
@@ -556,7 +600,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
         return datetime.strptime(
             self._last_auto_save.get_state(),
             "%Y-%m-%d %H:%M:%S",
-        )
+        ).replace(tzinfo=UTC)
 
     @property
     def naughty_transaction_pattern(self) -> Pattern[str] | None:
