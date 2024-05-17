@@ -52,8 +52,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
     def initialize(self) -> None:
         """Initialize the app."""
         add_warehouse_handler(self.err)
-
-        self.redirect_uri = "http://localhost:5000/get_auth_code"
+        truelayer_client_id = self.args["truelayer_client_id"]
 
         self.monzo_client = MonzoClient(
             client_id=self.args["monzo_client_id"],
@@ -61,8 +60,6 @@ class AutoSaver(Hass):  # type: ignore[misc]
             creds_cache_dir=CACHE_DIR,
             use_existing_credentials_only=True,
         )
-
-        truelayer_client_id = self.args["truelayer_client_id"]
 
         self.truelayer_client = TrueLayerClient(
             client_id=truelayer_client_id,
@@ -79,6 +76,11 @@ class AutoSaver(Hass):  # type: ignore[misc]
         self.auth_code_input_text_lookup: dict[MonzoClient | TrueLayerClient, str] = {
             self.monzo_client: "input_text.monzo_auth_token_auto_saver",
             self.truelayer_client: f"input_text.truelayer_{self.truelayer_client.bank.name.lower()}_auto_saver_auth_token",  # noqa: E501
+        }
+
+        self.redirect_uri_lookup: dict[MonzoClient | TrueLayerClient, str] = {
+            self.truelayer_client: "https://console.truelayer.com/redirect-page",
+            self.monzo_client: "http://localhost:5000/get_auth_code",
         }
 
         self.input_text_client_lookup: dict[str, MonzoClient | TrueLayerClient] = {
@@ -348,7 +350,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
                     "grant_type": "authorization_code",
                     "client_id": client.client_id,
                     "client_secret": client.client_secret,
-                    "redirect_uri": self.redirect_uri,
+                    "redirect_uri": self.redirect_uri_lookup[client],
                 },
                 header_overrides={},
             )
@@ -427,7 +429,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         auth_link_params = {
             "client_id": client.client_id,
-            "redirect_uri": self.redirect_uri,
+            "redirect_uri": self.redirect_uri_lookup[client],
             "response_type": "code",
             "state": "abcdefghijklmnopqrstuvwxyz",
             "access_type": "offline",
