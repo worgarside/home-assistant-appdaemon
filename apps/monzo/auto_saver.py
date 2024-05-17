@@ -85,6 +85,8 @@ class AutoSaver(Hass):  # type: ignore[misc]
             v: k for k, v in self.auth_code_input_text_lookup.items()
         }
 
+        self.initialize_entities()
+
     def initialize_entities(self) -> None:
         """Initialize the entities."""
         try:
