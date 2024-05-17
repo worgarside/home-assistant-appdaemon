@@ -87,39 +87,6 @@ class AutoSaver(Hass):  # type: ignore[misc]
             v: k for k, v in self.auth_code_input_text_lookup.items()
         }
 
-        self.initialize_entities()
-
-        for input_text in self.auth_code_input_text_lookup.values():
-            self.listen_state(
-                self.consume_auth_token,
-                input_text,
-            )
-
-    def initialize_entities(self) -> None:
-        """Initialize the entities."""
-        try:
-            self.amex_card = self.truelayer_client.list_cards()[0]
-        except HTTPError as err:
-            if (
-                err.response.url == self.truelayer_client.ACCESS_TOKEN_ENDPOINT
-                and err.response.status_code == HTTPStatus.BAD_REQUEST
-            ):
-                try:
-                    self.send_auth_link_notification(self.truelayer_client)
-                except Exception as login_err:
-                    raise login_err from err
-                else:
-                    return
-
-    def _initialize_entities(self) -> None:
-        if not (
-            savings_pot := self.monzo_client.get_pot_by_id(self.args["savings_pot_id"])
-        ):
-            self.error("Could not find savings pot")
-            raise RuntimeError("Could not find savings pot")
-
-        self.savings_pot = savings_pot
-
         self._amex_transactions = []
         self._monzo_transactions = []
 
@@ -135,11 +102,9 @@ class AutoSaver(Hass):  # type: ignore[misc]
             "input_number.auto_save_naughty_transaction_percentage",
         )
 
-        self.spotify_client = SpotifyClient(
-            client_id=self.args["spotify_client_id"],
-            client_secret=self.args["spotify_client_secret"],
-            creds_cache_dir=Path("/homeassistant/.wg-utilities/oauth_credentials"),
-            use_existing_credentials_only=True,
+        self.listen_state(
+            self.consume_auth_token,
+            list(self.auth_code_input_text_lookup.values()),
         )
 
         self.listen_state(
@@ -163,6 +128,39 @@ class AutoSaver(Hass):  # type: ignore[misc]
         self.listen_state(
             self.save_money,
             "input_boolean.ad_monzo_auto_save",
+        )
+
+        self.initialize_entities()
+
+    def initialize_entities(self) -> None:
+        """Initialize the entities."""
+        try:
+            self.amex_card = self.truelayer_client.list_cards()[0]
+        except HTTPError as err:
+            if (
+                err.response.url == self.truelayer_client.ACCESS_TOKEN_ENDPOINT
+                and err.response.status_code == HTTPStatus.BAD_REQUEST
+            ):
+                try:
+                    self.send_auth_link_notification(self.truelayer_client)
+                except Exception as login_err:
+                    raise login_err from err
+                else:
+                    return
+
+        if not (
+            savings_pot := self.monzo_client.get_pot_by_id(self.args["savings_pot_id"])
+        ):
+            self.error("Could not find savings pot")
+            raise RuntimeError("Could not find savings pot")
+
+        self.savings_pot = savings_pot
+
+        self.spotify_client = SpotifyClient(
+            client_id=self.args["spotify_client_id"],
+            client_secret=self.args["spotify_client_secret"],
+            creds_cache_dir=Path("/homeassistant/.wg-utilities/oauth_credentials"),
+            use_existing_credentials_only=True,
         )
 
         self.calculate(
