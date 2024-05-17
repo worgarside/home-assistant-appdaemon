@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from http import HTTPStatus
 from json import dumps
 from pathlib import Path
 from re import IGNORECASE, Pattern
 from re import compile as re_compile
 from typing import TYPE_CHECKING, Any, Final, Literal
+from urllib import parse
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
+from requests import HTTPError
 from wg_utilities.clients import MonzoClient, SpotifyClient, TrueLayerClient
+from wg_utilities.clients.oauth_client import OAuthCredentials
 from wg_utilities.clients.truelayer import Bank, Card
 from wg_utilities.clients.truelayer import Transaction as TrueLayerTransaction
 from wg_utilities.loggers import add_warehouse_handler
@@ -49,19 +53,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
         """Initialize the app."""
         add_warehouse_handler(self.err)
 
-        truelayer_client_id = self.args["truelayer_client_id"]
-
-        self.amex_card = TrueLayerClient(
-            client_id=truelayer_client_id,
-            client_secret=self.args["truelayer_client_secret"],
-            creds_cache_path=CACHE_DIR.joinpath(
-                "TrueLayerClient",
-                truelayer_client_id,
-                "amex_auto_saver.json",
-            ),
-            use_existing_credentials_only=True,
-            bank=Bank.AMEX,
-        ).list_cards()[0]
+        self.redirect_uri = "http://localhost:5000/get_auth_code"
 
         self.monzo_client = MonzoClient(
             client_id=self.args["monzo_client_id"],
@@ -70,6 +62,46 @@ class AutoSaver(Hass):  # type: ignore[misc]
             use_existing_credentials_only=True,
         )
 
+        truelayer_client_id = self.args["truelayer_client_id"]
+
+        self.truelayer_client = TrueLayerClient(
+            client_id=truelayer_client_id,
+            client_secret=self.args["truelayer_client_secret"],
+            creds_cache_path=CACHE_DIR.joinpath(
+                TrueLayerClient.__name__,
+                truelayer_client_id,
+                "amex_auto_saver.json",
+            ),
+            use_existing_credentials_only=True,
+            bank=Bank.AMEX,
+        )
+
+        self.auth_code_input_text_lookup: dict[MonzoClient | TrueLayerClient, str] = {
+            self.monzo_client: "input_text.monzo_auth_token_auto_saver",
+            self.truelayer_client: f"input_text.truelayer_{self.truelayer_client.bank.name.lower()}_auto_saver_auth_token",  # noqa: E501
+        }
+
+        self.input_text_client_lookup: dict[str, MonzoClient | TrueLayerClient] = {
+            v: k for k, v in self.auth_code_input_text_lookup.items()
+        }
+
+    def initialize_entities(self) -> None:
+        """Initialize the entities."""
+        try:
+            self.amex_card = self.truelayer_client.list_cards()[0]
+        except HTTPError as err:
+            if (
+                err.response.url == self.truelayer_client.ACCESS_TOKEN_ENDPOINT
+                and err.response.status_code == HTTPStatus.BAD_REQUEST
+            ):
+                try:
+                    self.send_auth_link_notification(self.truelayer_client)
+                except Exception as login_err:
+                    raise login_err from err
+                else:
+                    return
+
+    def _initialize_entities(self) -> None:
         if not (
             savings_pot := self.monzo_client.get_pot_by_id(self.args["savings_pot_id"])
         ):
@@ -283,6 +315,76 @@ class AutoSaver(Hass):  # type: ignore[misc]
             attributes=attributes,
         )
 
+    def consume_auth_token(
+        self,
+        entity: str,
+        attribute: Literal["state"],
+        old: str,
+        new: str,
+        pin_app: bool,  # noqa: FBT001
+        **kwargs: dict[str, Any],
+    ) -> None:
+        """Consume the auth token and get the access token."""
+        _ = attribute, old, pin_app, kwargs
+
+        if not new:
+            return
+
+        client = self.input_text_client_lookup[entity]
+
+        if len(new) == 1:
+            self.send_auth_link_notification(client)
+            return
+
+        self.log("Consuming auth code %s", new)
+
+        try:
+            credentials: dict[str, Any] = client.post_json_response(  # type: ignore[assignment]
+                client.access_token_endpoint,
+                json={
+                    "code": new,
+                    "grant_type": "authorization_code",
+                    "client_id": client.client_id,
+                    "client_secret": client.client_secret,
+                    "redirect_uri": self.redirect_uri,
+                },
+                header_overrides={},
+            )
+        except HTTPError as err:
+            self.error(
+                "Error response (%s %s) from %s: %s",
+                err.response.status_code,
+                err.response.reason,
+                err.response.url,
+                err.response.text,
+            )
+            return
+
+        credentials["client_id"] = client.client_id
+        credentials["client_secret"] = client.client_secret
+
+        client.credentials = OAuthCredentials.parse_first_time_login(credentials)
+
+        self.initialize_entities()
+
+        self.set_textvalue(
+            entity_id=self.auth_code_input_text,
+            value="",
+        )
+
+        self.clear_notifications()
+
+    def clear_notifications(self) -> None:
+        """Clear the notification."""
+        self.call_service(
+            "script/turn_on",
+            entity_id="script.notify_will",
+            variables={
+                "clear_notification": True,
+                "notification_id": self.notification_id,
+            },
+        )
+
     def save_money(
         self,
         entity: Literal["input_boolean.ad_monzo_auto_save"],
@@ -314,7 +416,62 @@ class AutoSaver(Hass):  # type: ignore[misc]
         self.call_service(
             "input_datetime/set_datetime",
             entity_id=self._last_auto_save.entity_id,
-            datetime=datetime.utcnow().isoformat(),
+            datetime=datetime.now(UTC).isoformat(),
+        )
+
+    def send_auth_link_notification(self, client: TrueLayerClient | MonzoClient) -> None:
+        """Run the first time login process."""
+        self.log("Running first time login")
+
+        auth_link_params = {
+            "client_id": client.client_id,
+            "redirect_uri": self.redirect_uri,
+            "response_type": "code",
+            "state": "abcdefghijklmnopqrstuvwxyz",
+            "access_type": "offline",
+            "prompt": "consent",
+            "scope": " ".join(client.scopes),
+        }
+
+        auth_link = client.auth_link_base + "?" + parse.urlencode(auth_link_params)
+
+        self.log(auth_link)
+
+        if isinstance(client, TrueLayerClient):
+            title = f"{client.bank} (auto-saver) Access Token Expired"
+            message = (
+                f"TrueLayer access token for {client.bank} (auto-saver) has expired!"
+            )
+            notification_id = (
+                f"truelayer_{client.bank.name.lower()}_auto_saver_access_token_expired"
+            )
+        elif isinstance(client, MonzoClient):
+            title = "Monzo (auto-saver) Access Token Expired"
+            message = "Monzo access token has expired!"
+            notification_id = "monzo_auto_saver_access_token_expired"
+        else:
+            raise TypeError(f"Invalid client: {client!r}")
+
+        self.call_service(
+            "script/turn_on",
+            entity_id="script.notify_will",
+            variables={
+                "clear_notification": True,
+                "title": title,
+                "message": message,
+                "notification_id": notification_id,
+                "mobile_notification_icon": "mdi:key-alert-outline",
+                "actions": dumps(
+                    [
+                        {"action": "URI", "title": "Auth Link", "uri": auth_link},
+                        {
+                            "action": "URI",
+                            "title": "Submit Code",
+                            "uri": f"entityId:{self.auth_code_input_text_lookup[client]}",
+                        },
+                    ],
+                ),
+            },
         )
 
     def update_transaction_records(self) -> None:
