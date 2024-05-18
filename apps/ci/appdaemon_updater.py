@@ -5,11 +5,11 @@ from __future__ import annotations
 from os import environ
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
+from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
 from git import GitCommandError, Repo
 
 if TYPE_CHECKING:
-    from appdaemon.entity import Entity  # type: ignore[import-not-found]
+    from appdaemon.entity import Entity  # type: ignore[import-untyped]
 
 environ["GIT_SSH_COMMAND"] = (
     "ssh -o StrictHostKeyChecking=no -i /homeassistant/.ssh/github"

@@ -12,7 +12,7 @@ from time import sleep
 from typing import TYPE_CHECKING, Any, Final, Literal
 from urllib import parse
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
+from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
 from requests import HTTPError
 from wg_utilities.clients import MonzoClient, SpotifyClient, TrueLayerClient
 from wg_utilities.clients.oauth_client import OAuthCredentials
@@ -23,7 +23,7 @@ from wg_utilities.loggers import add_warehouse_handler
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection
 
-    from appdaemon.entity import Entity  # type: ignore[import-not-found]
+    from appdaemon.entity import Entity  # type: ignore[import-untyped]
     from wg_utilities.clients.monzo import Pot
     from wg_utilities.clients.monzo import Transaction as MonzoTransaction
 
