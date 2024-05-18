@@ -4,7 +4,7 @@ default_language_version:
 
 repos:
   - repo: https://github.com/worgarside/pre-commit-hooks-dependency-sync
-    rev: 1.1.0
+    rev: 1.1.1
     hooks:
       - id: sync-additional-dependencies
 
@@ -80,6 +80,7 @@ repos:
           - types-Pillow
           - types-requests
           - wg-utilities==5.15.3
+          - git+https://github.com/AppDaemon/appdaemon.git
 
   - repo: https://github.com/pre-commit/pygrep-hooks
     rev: v1.10.0

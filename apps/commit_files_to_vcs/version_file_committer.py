@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
+from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
 from github import Github, InputGitAuthor
 from github.Auth import Token
 from wg_utilities.loggers import add_warehouse_handler

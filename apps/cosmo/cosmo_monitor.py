@@ -17,7 +17,7 @@ from typing import (
     TypeVar,
 )
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
+from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, computed_field
 
 if TYPE_CHECKING:
