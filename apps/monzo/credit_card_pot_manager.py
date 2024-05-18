@@ -179,7 +179,7 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
                     "grant_type": "authorization_code",
                     "client_id": self.client.client_id,
                     "client_secret": self.client.client_secret,
-                    "redirect_uri": self.redirect_uri,
+                    "redirect_uri": "http://localhost:5001/get_auth_code",
                 },
                 header_overrides={"Content-Type": "application/x-www-form-urlencoded"},
             )
