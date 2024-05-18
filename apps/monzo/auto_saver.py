@@ -182,7 +182,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         self.clear_notifications(self.truelayer_client)
 
-    def initialize_monzo(self, *, send_notification: bool = True) -> None:
+    def initialize_monzo(self, *, send_notification: bool = True) -> bool:
         """Initialize the Monzo client."""
         try:
             pot = self.monzo_client.get_pot_by_id(self.args["savings_pot_id"])
@@ -193,11 +193,10 @@ class AutoSaver(Hass):  # type: ignore[misc]
                 self.error("Error response from Monzo: %s", err.response.text)
                 raise err from None
 
-            if (
-                data.get("code") == "forbidden.insufficient_permissions"
-                and send_notification
-            ):
-                self.send_auth_link_notification(self.monzo_client)
+            if data.get("code") == "forbidden.insufficient_permissions":
+                if send_notification:
+                    self.send_auth_link_notification(self.monzo_client)
+                return False
 
             self.error(err.response.text)
             raise
@@ -209,6 +208,8 @@ class AutoSaver(Hass):  # type: ignore[misc]
         self.savings_pot = pot
 
         self.clear_notifications(self.monzo_client)
+
+        return True
 
     def _get_percentage_of_debit_transactions_value(self) -> tuple[int, list[str]]:
         """Get the percentage of income to save."""
@@ -422,9 +423,9 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         if isinstance(client, MonzoClient):
             for _ in range(12):
+                if self.initialize_monzo(send_notification=False):
+                    break
                 sleep(10)
-
-                self.initialize_monzo(send_notification=False)
         else:
             self.initialize_amex()
 
