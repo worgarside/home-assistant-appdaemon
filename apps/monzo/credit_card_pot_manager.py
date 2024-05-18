@@ -30,6 +30,7 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
 
         self.notification_id = "monzo_credit_card_pot_access_token_expired"
         self.auth_code_input_text = "input_text.monzo_auth_token_cc_pot_top_up"
+        self.redirect_uri = "https://console.truelayer.com/redirect-page"
 
         self.client = MonzoClient(
             client_id=self.args["client_id"],
@@ -114,7 +115,7 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
         auth_link_params = {
             "client_id": self.client.client_id,
             # Reflects the code back at the user for easy copypaste
-            "redirect_uri": "https://console.truelayer.com/redirect-page",
+            "redirect_uri": self.redirect_uri,
             "response_type": "code",
             "state": "abcdefghijklmnopqrstuvwxyz",
             "access_type": "offline",
@@ -179,7 +180,7 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
                     "grant_type": "authorization_code",
                     "client_id": self.client.client_id,
                     "client_secret": self.client.client_secret,
-                    "redirect_uri": "http://localhost:5001/get_auth_code",
+                    "redirect_uri": self.redirect_uri,
                 },
                 header_overrides={"Content-Type": "application/x-www-form-urlencoded"},
             )
