@@ -28,8 +28,8 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
         """Initialize the app."""
         add_warehouse_handler(self.err)
 
-        self.notification_id = f"truelayer_access_token_{self.bank.name.lower()}_expired"
-        self.auth_code_input_text = "input_text.monzo_auth_token_cc_top_up"
+        self.notification_id = "monzo_credit_card_pot_access_token_expired"
+        self.auth_code_input_text = "input_text.monzo_auth_token_cc_pot_top_up"
 
         self.client = MonzoClient(
             client_id=self.args["client_id"],
@@ -135,7 +135,7 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
                 "clear_notification": True,
                 "title": "Monzo (CC top-up) Access Token Expired",
                 "message": "Monzo access token has expired!",
-                "notification_id": "monzo_credit_card_pot_access_token_expired",
+                "notification_id": self.notification_id,
                 "mobile_notification_icon": "mdi:key-alert-outline",
                 "actions": dumps(
                     [
