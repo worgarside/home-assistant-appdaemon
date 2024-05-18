@@ -74,9 +74,16 @@ class AutoSaver(Hass):  # type: ignore[misc]
             bank=Bank.AMEX,
         )
 
+        bank_slug = self.truelayer_client.bank.name.lower()
+
         self.auth_code_input_text_lookup: dict[MonzoClient | TrueLayerClient, str] = {
             self.monzo_client: "input_text.monzo_auth_token_auto_saver",
-            self.truelayer_client: f"input_text.truelayer_auth_token_{self.truelayer_client.bank.name.lower()}_auto_saver",  # noqa: E501
+            self.truelayer_client: f"input_text.truelayer_auth_token_{bank_slug}_auto_saver",
+        }
+
+        self.notification_id_lookup: dict[MonzoClient | TrueLayerClient, str] = {
+            self.monzo_client: "monzo_auto_saver_access_token_expired",
+            self.truelayer_client: f"truelayer_{bank_slug}_auto_saver_access_token_expired",
         }
 
         self.redirect_uri_lookup: dict[MonzoClient | TrueLayerClient, str] = {
@@ -173,6 +180,8 @@ class AutoSaver(Hass):  # type: ignore[misc]
                 else:
                     return
 
+        self.clear_notifications(self.truelayer_client)
+
     def initialize_monzo(self, *, send_notification: bool = True) -> None:
         """Initialize the Monzo client."""
         try:
@@ -198,6 +207,8 @@ class AutoSaver(Hass):  # type: ignore[misc]
             raise RuntimeError("Could not find savings pot")
 
         self.savings_pot = pot
+
+        self.clear_notifications(self.monzo_client)
 
     def _get_percentage_of_debit_transactions_value(self) -> tuple[int, list[str]]:
         """Get the percentage of income to save."""
@@ -422,16 +433,16 @@ class AutoSaver(Hass):  # type: ignore[misc]
             value="",
         )
 
-        self.clear_notifications()
+        self.clear_notifications(client)
 
-    def clear_notifications(self) -> None:
+    def clear_notifications(self, client: MonzoClient | TrueLayerClient) -> None:
         """Clear the notification."""
         self.call_service(
             "script/turn_on",
             entity_id="script.notify_will",
             variables={
                 "clear_notification": True,
-                "notification_id": self.notification_id,
+                "notification_id": self.notification_id_lookup[client],
             },
         )
 
@@ -494,13 +505,9 @@ class AutoSaver(Hass):  # type: ignore[misc]
             message = (
                 f"TrueLayer access token for {client.bank} (auto-saver) has expired!"
             )
-            notification_id = (
-                f"truelayer_{client.bank.name.lower()}_auto_saver_access_token_expired"
-            )
         elif isinstance(client, MonzoClient):
             title = "Monzo (auto-saver) Access Token Expired"
             message = "Monzo access token has expired!"
-            notification_id = "monzo_auto_saver_access_token_expired"
         else:
             raise TypeError(f"Invalid client: {client!r}")
 
@@ -511,7 +518,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
                 "clear_notification": True,
                 "title": title,
                 "message": message,
-                "notification_id": notification_id,
+                "notification_id": self.notification_id_lookup[client],
                 "mobile_notification_icon": "mdi:key-alert-outline",
                 "actions": dumps(
                     [
