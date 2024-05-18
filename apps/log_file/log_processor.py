@@ -8,7 +8,7 @@ from logging import NOTSET, getLevelNamesMapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, TypedDict
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
+from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
 from wg_utilities.loggers import WarehouseHandler, add_warehouse_handler
 
 if TYPE_CHECKING:

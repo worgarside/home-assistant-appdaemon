@@ -6,7 +6,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Final, Literal
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
+from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
 from PIL import Image
 from pydantic import field_validator
 from wg_utilities.clients import GooglePhotosClient

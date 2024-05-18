@@ -8,7 +8,7 @@ from time import sleep
 from typing import TYPE_CHECKING, Any, Literal
 from urllib import parse
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
+from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
 from requests import HTTPError
 from wg_utilities.clients import MonzoClient
 from wg_utilities.clients.oauth_client import OAuthCredentials
