@@ -412,8 +412,9 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         if isinstance(client, MonzoClient):
             for _ in range(12):
-                if not self.initialize_monzo(send_notification=False):
-                    sleep(10)
+                if self.initialize_monzo(send_notification=False):
+                    break
+                sleep(10)
         else:
             self.initialize_amex()
 

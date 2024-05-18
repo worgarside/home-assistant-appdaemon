@@ -200,8 +200,9 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
         self.client.credentials = OAuthCredentials.parse_first_time_login(credentials)
 
         for _ in range(12):
-            if not self.initialize_entities(send_notification=False):
-                sleep(10)
+            if self.initialize_entities(send_notification=False):
+                break
+            sleep(10)
 
         self.set_textvalue(
             entity_id=self.auth_code_input_text,
