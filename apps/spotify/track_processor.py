@@ -10,7 +10,7 @@ from re import compile as compile_regex
 from re import sub
 from typing import Any, Literal, Self
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-not-found]
+from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
 from wg_utilities.clients import SpotifyClient
 from wg_utilities.clients.spotify import Playlist, Track
 from wg_utilities.loggers import add_warehouse_handler
