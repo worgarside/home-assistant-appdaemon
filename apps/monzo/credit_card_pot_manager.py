@@ -6,7 +6,7 @@ from datetime import datetime
 from json import JSONDecodeError, dumps
 from pathlib import Path
 from time import sleep
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 from urllib import parse
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
@@ -22,7 +22,10 @@ if TYPE_CHECKING:
 class CreditCardPotManager(Hass):  # type: ignore[misc]
     """Keep my credit card pot topped up with nightly notifications."""
 
-    ACTION_PHRASE: Literal["TOP_UP_CREDIT_CARD_POT"] = "TOP_UP_CREDIT_CARD_POT"
+    ACTION_PHRASE: Final[Literal["TOP_UP_CREDIT_CARD_POT"]] = "TOP_UP_CREDIT_CARD_POT"
+    NOTIFICATION_ICON: Final[Literal["mdi:credit-card-plus-outline"]] = (
+        "mdi:credit-card-plus-outline"
+    )
 
     client: MonzoClient
     credit_card_pot: Pot
@@ -89,6 +92,34 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
                     notification_action,
                     {},
                 )
+
+                message = (
+                    f"£{top_up_amount:.2f} has been added to the credit card pot. "
+                    f"Remaining balance: £{(monzo_current_account_balance - top_up_amount):.2f}"
+                )
+
+                self.log(message)
+
+                self.call_service(
+                    "script/turn_on",
+                    entity_id="script.notify_will",
+                    variables={
+                        "clear_notification": True,
+                        "title": "Credit Card Pot automatically topped up",
+                        "message": message,
+                        "notification_id": self.ACTION_PHRASE,
+                        "mobile_notification_icon": self.NOTIFICATION_ICON,
+                        "actions": dumps(
+                            [
+                                {
+                                    "action": "URI",
+                                    "title": "Open Monzo",
+                                    "uri": "app://co.uk.getmondo",
+                                },
+                            ],
+                        ),
+                    },
+                )
             else:
                 message = (
                     f"Credit Cards pot is £{deficit:.2f} too low. Top up pot?\n\n"
@@ -96,8 +127,8 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
                 )
                 data = {
                     "actions": [notification_action],
-                    "tag": "notification_credit_card_top_up_send",
-                    "notification_icon": "mdi:credit-card-plus-outline",
+                    "tag": self.ACTION_PHRASE,
+                    "notification_icon": self.NOTIFICATION_ICON,
                     "visibility": "private",
                 }
 
