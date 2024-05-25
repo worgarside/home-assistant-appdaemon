@@ -135,6 +135,7 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
                 self.notify(
                     name="mobile_app_will_s_pixel_6_pro",
                     message=message,
+                    title="Top up Credit Card Pot?",
                     data=data,
                 )
 
