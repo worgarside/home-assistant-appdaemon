@@ -60,89 +60,107 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
             self.get_state("var.truelayer_balance_monzo_credit_cards"),
         )
 
-        if (deficit := round(amex_balance - monzo_credit_cards_balance, 2)) > 0.0:
-            monzo_current_account_balance = float(
-                self.get_state("var.truelayer_balance_monzo_current_account"),
-            )
-
-            min_remainder = float(
-                self.get_state("input_number.credit_card_pot_top_up_minimum_remainder"),
-            )
-
-            max_auto_top_up = float(
-                self.get_state("input_number.credit_card_pot_top_up_maximum_auto_top_up"),
-            )
-
-            available = max(monzo_current_account_balance - min_remainder, 0)
-            top_up_amount = min(available, deficit)
-
-            notification_action = {
-                "action": f"{self.ACTION_PHRASE}:{top_up_amount}",
-                "title": f"Top Up (£{top_up_amount:.2f})",
-            }
-
-            if top_up_amount < max_auto_top_up:
-                self.log(
-                    "Credit Cards pot is £%.2f too low. Topping up by £%.2f",
-                    deficit,
-                    top_up_amount,
-                )
-                self.top_up_credit_card_pot(
-                    "mobile_app_notification_action",
-                    notification_action,
-                    {},
-                )
-
-                message = (
-                    f"£{top_up_amount:.2f} has been added to the credit card pot. "
-                    f"Remaining balance: £{(monzo_current_account_balance - top_up_amount):.2f}"
-                )
-
-                self.log(message)
-
+        if (deficit := round(amex_balance - monzo_credit_cards_balance, 2)) <= 0.0:
+            if abs(deficit) < 50:  # noqa: PLR2004
+                # Filter out notifications for the day after payments, when the deficit is -£PAYMENT
                 self.call_service(
                     "script/turn_on",
                     entity_id="script.notify_will",
                     variables={
                         "clear_notification": True,
-                        "title": "Credit Card Pot automatically topped up",
-                        "message": message,
+                        "title": "Credit Card Pot top up skipped",
+                        "message": "No top up needed!",
                         "notification_id": self.ACTION_PHRASE,
-                        "mobile_notification_icon": self.NOTIFICATION_ICON,
-                        "actions": dumps(
-                            [
-                                {
-                                    "action": "URI",
-                                    "title": "Open Monzo",
-                                    "uri": "app://co.uk.getmondo",
-                                },
-                            ],
+                        "mobile_notification_icon": self.NOTIFICATION_ICON.replace(
+                            "plus",
+                            "check",
                         ),
                     },
                 )
-            else:
-                message = (
-                    f"Credit Cards pot is £{deficit:.2f} too low. Top up pot?\n\n"
-                    f"Amount remaining: £{(monzo_current_account_balance - top_up_amount):.2f}"
-                )
-                data = {
-                    "actions": [notification_action],
-                    "tag": self.ACTION_PHRASE,
-                    "notification_icon": self.NOTIFICATION_ICON,
-                    "visibility": "private",
-                }
+            return
 
-                self.notify(
-                    name="mobile_app_will_s_pixel_6_pro",
-                    message=message,
-                    title="Top up Credit Card Pot?",
-                    data=data,
-                )
+        monzo_current_account_balance = float(
+            self.get_state("var.truelayer_balance_monzo_current_account"),
+        )
 
-                self.log(
-                    "Sent notification to top up credit card pot by £%.2f",
-                    top_up_amount,
-                )
+        min_remainder = float(
+            self.get_state("input_number.credit_card_pot_top_up_minimum_remainder"),
+        )
+
+        max_auto_top_up = float(
+            self.get_state("input_number.credit_card_pot_top_up_maximum_auto_top_up"),
+        )
+
+        available = max(monzo_current_account_balance - min_remainder, 0)
+        top_up_amount = min(available, deficit)
+
+        notification_action = {
+            "action": f"{self.ACTION_PHRASE}:{top_up_amount}",
+            "title": f"Top Up (£{top_up_amount:.2f})",
+        }
+
+        if top_up_amount < max_auto_top_up:
+            self.log(
+                "Credit Cards pot is £%.2f too low. Topping up by £%.2f",
+                deficit,
+                top_up_amount,
+            )
+            self.top_up_credit_card_pot(
+                "mobile_app_notification_action",
+                notification_action,
+                {},
+            )
+
+            message = (
+                f"£{top_up_amount:.2f} has been added to the credit card pot. "
+                f"Remaining balance: £{(monzo_current_account_balance - top_up_amount):.2f}"
+            )
+
+            self.log(message)
+
+            self.call_service(
+                "script/turn_on",
+                entity_id="script.notify_will",
+                variables={
+                    "clear_notification": True,
+                    "title": "Credit Card Pot automatically topped up",
+                    "message": message,
+                    "notification_id": self.ACTION_PHRASE,
+                    "mobile_notification_icon": self.NOTIFICATION_ICON,
+                    "actions": dumps(
+                        [
+                            {
+                                "action": "URI",
+                                "title": "Open Monzo",
+                                "uri": "app://co.uk.getmondo",
+                            },
+                        ],
+                    ),
+                },
+            )
+        else:
+            message = (
+                f"Credit Cards pot is £{deficit:.2f} too low. Top up pot?\n\n"
+                f"Amount remaining: £{(monzo_current_account_balance - top_up_amount):.2f}"
+            )
+            data = {
+                "actions": [notification_action],
+                "tag": self.ACTION_PHRASE,
+                "notification_icon": self.NOTIFICATION_ICON,
+                "visibility": "private",
+            }
+
+            self.notify(
+                name="mobile_app_will_s_pixel_6_pro",
+                message=message,
+                title="Top up Credit Card Pot?",
+                data=data,
+            )
+
+            self.log(
+                "Sent notification to top up credit card pot by £%.2f",
+                top_up_amount,
+            )
 
     def top_up_credit_card_pot(
         self,
