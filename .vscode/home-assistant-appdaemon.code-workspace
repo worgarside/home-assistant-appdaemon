@@ -3,10 +3,10 @@
 		{
 			"path": ".."
 		},
-		{
-			"name": "SSH FS - /addon_configs/a0d7b954_appdaemon",
-			"uri": "ssh://hasspi-appdaemon/addon_configs/a0d7b954_appdaemon"
-		},
+		// {
+		// 	"name": "SSH FS - /addon_configs/a0d7b954_appdaemon",
+		// 	"uri": "ssh://hasspi-appdaemon/addon_configs/a0d7b954_appdaemon"
+		// },
 		{
 			"name": "scratchpads",
 			"uri": "/Users/worgarside/Library/Application Support/Code/User/globalStorage/buenon.scratchpads/scratchpads"
@@ -14,10 +14,10 @@
 		{
 			"path": "/Users/worgarside/Library/Application Support/WgUtilities/"
 		},
-        {
-            "name": "SSH FS - /config",
-            "uri": "ssh://hasspi-config/homeassistant"
-        }
+        // {
+        //     "name": "SSH FS - /config",
+        //     "uri": "ssh://hasspi-config/homeassistant"
+        // }
 	],
 	"settings": {
 	}

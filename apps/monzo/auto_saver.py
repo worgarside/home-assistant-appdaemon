@@ -34,6 +34,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
     """Automatically save money based on certain criteria."""
 
     AUTO_SAVE_VARIABLE_ID: Final[str] = "var.auto_save_amount"
+    CUM_TOTAL_VARIABLE_ID: Final[str] = "var.auto_save_cumulative_total"
     MULTISPACE_PATTERN: Final[Pattern[str]] = re_compile(r"\s+")
 
     _auto_save_minimum: Entity
@@ -461,9 +462,13 @@ class AutoSaver(Hass):  # type: ignore[misc]
         if old == new or ({old, new} & {"unavailable", "unknown"}):
             return
 
+        save_amount_pence = int(float(self.get_state(self.AUTO_SAVE_VARIABLE_ID)) * 100)
+
+        self.log("Saving %s pence", save_amount_pence)
+
         self.monzo_client.deposit_into_pot(
             self.savings_pot,
-            amount_pence=int(float(self.get_state(self.AUTO_SAVE_VARIABLE_ID)) * 100),
+            amount_pence=save_amount_pence,
             dedupe_id="-".join(
                 (
                     self.name,
@@ -479,6 +484,20 @@ class AutoSaver(Hass):  # type: ignore[misc]
             "input_datetime/set_datetime",
             entity_id=self._last_auto_save.entity_id,
             datetime=datetime.now(UTC).isoformat(),
+        )
+
+        try:
+            new_total = float(self.get_state(self.CUM_TOTAL_VARIABLE_ID)) + (
+                save_amount_pence / 100
+            )
+        except (TypeError, ValueError):
+            new_total = save_amount_pence / 100
+
+        self.call_service(
+            "var/set",
+            entity_id=self.CUM_TOTAL_VARIABLE_ID,
+            value=round(new_total, 2),
+            force_update=True,
         )
 
     def send_auth_link_notification(self, client: TrueLayerClient | MonzoClient) -> None:
