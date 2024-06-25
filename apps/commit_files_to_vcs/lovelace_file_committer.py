@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from http import HTTPStatus
+from json import dumps, loads
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal
 
@@ -93,7 +94,9 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
 
         self.log("Creating commit with message: %s", commit_message)
 
-        file_content += "\n"
+        # This is to replicate what the pre-commit formatting would do and ensure a consistent
+        # output
+        file_content = dumps(loads(file_content), indent=2, ensure_ascii=True) + "\n"
 
         if not self.branch_exists:
             self.log("Creating branch %s", self.BRANCH_NAME)
