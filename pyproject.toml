@@ -7,37 +7,78 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "~3.12"
-wg-utilities = {extras = ["clients"], version = "^5.15.3"}
+wg-utilities = { extras = ["clients"], version = "^5.15.3" }
 pygithub = "^2.3.0"
 gitpython = "^3.1.43"
 pillow = "^10.3.0"
 
+[tool.poetry.group.dev]
+optional = true
+
 [tool.poetry.group.dev.dependencies]
-appdaemon = {git = "https://github.com/AppDaemon/appdaemon.git"}
+appdaemon = { git = "https://github.com/AppDaemon/appdaemon.git" }
 
 [tool.mypy]
-plugins = "pydantic.mypy"
+plugins = ["pydantic.mypy"]
 
-exclude = ["_local_sandbox"]
-follow_imports = "normal"
+check_untyped_defs = true
+
 disallow_any_generics = true
+disallow_incomplete_defs = true
 disallow_subclassing_any = true
 disallow_untyped_calls = true
 disallow_untyped_decorators = true
 disallow_untyped_defs = true
 
+explicit_package_bases = true
+
+ignore_missing_imports = false
+
+no_implicit_optional = true
+no_implicit_reexport = true
+
+show_column_numbers = true
+show_error_codes = true
+show_error_context = true
+
+strict = true
+strict_equality = true
+strict_optional = true
+
 warn_return_any = true
 warn_unused_ignores = true
 warn_unused_configs = true
 warn_redundant_casts = true
+warn_no_return = true
+warn_unreachable = true
 
-no_implicit_optional = true
-strict_optional = true
+enable_error_code = [
+  "arg-type",           # Checks for argument types in function calls.
+  "assignment",         # Validates types of variable assignments.
+  "return-value",       # Ensures that return values match the declared type.
+  "call-overload",      # Validates correct use of method/function overloads.
+  "operator",           # Checks operator usage against expected types.
+  "index",              # Validates types used in indexing operations.
+  "attr-defined",       # Checks if attributes exist in classes/objects.
+  "no-untyped-call",    # Prevents calls to untyped functions in typed contexts.
+  "unreachable",        # Warns about code that can never be executed.
+  "truthy-bool",        # Ensures that boolean expressions are boolean in type.
+  "union-attr",         # Checks for attribute access in unions safely.
+  "dict-item",          # Checks for proper types used in dictionary items.
+  "unused-awaitable",   # Warns if an awaitable is not awaited.
+  "override",           # Ensures overridden methods match the signature in base class.
+  "list-item",          # Checks type consistency of list items.
+  "return",             # Ensures all code paths in a function return a value if needed.
+  "type-var",           # Ensures type variables are used correctly.
+  "valid-type",         # Validates types used in annotations are recognized.
+  "func-returns-value", # Ensures functions declared with a return type actually return a value.
+]
 
-strict_equality = true
-explicit_package_bases = true
-show_error_codes = true
-enable_error_code = ["truthy-bool", "unused-awaitable"]
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+warn_untyped_fields = true
 
 [tool.codespell]
 skip = '*.json,*.csv,*.xml,*.lock'
@@ -46,52 +87,17 @@ ignore-words-list = "hass,ags"
 [tool.ruff]
 fix = true
 line-length = 90
-lint.select = [
-  "A",    # https://docs.astral.sh/ruff/rules/#flake8-builtins-a
-  "ARG",  # https://docs.astral.sh/ruff/rules/#flake8-unused-arguments-arg
-  "B",    # https://docs.astral.sh/ruff/rules/#flake8-bugbear-b
-  "C4",   # https://docs.astral.sh/ruff/rules/#flake8-comprehensions-c4
-  "COM",  # https://docs.astral.sh/ruff/rules/#flake8-commas-com
-  "D",    # https://docs.astral.sh/ruff/rules/#pydocstyle-d
-  "E",    # https://docs.astral.sh/ruff/rules/#error-e
-  "ERA",  # https://docs.astral.sh/ruff/rules/#eradicate-era
-  "F",    # https://docs.astral.sh/ruff/rules/#pyflakes-f
-  "FA",   # https://docs.astral.sh/ruff/rules/#flake8-future-annotations-fa
-  "FBT",  # https://docs.astral.sh/ruff/rules/#flake8-boolean-trap-fbt
-  "FLY",  # https://docs.astral.sh/ruff/rules/#flynt-fly
-  "FURB", # https://docs.astral.sh/ruff/rules/#refurb-furb
-  "G",    # https://docs.astral.sh/ruff/rules/#flake8-logging-format-g
-  "I",    # https://docs.astral.sh/ruff/rules/#isort-i
-  "ICN",  # https://docs.astral.sh/ruff/rules/#flake8-import-conventions-icn
-  "INT",  # https://docs.astral.sh/ruff/rules/#flake8-gettext-int
-  "ISC",  # https://docs.astral.sh/ruff/rules/#flake8-implicit-str-concat-isc
-  "LOG",  # https://docs.astral.sh/ruff/rules/#flake8-logging-log
-  "N",    # https://docs.astral.sh/ruff/rules/#pep8-naming-n
-  "PERF", # https://docs.astral.sh/ruff/rules/#perflint-perf
-  "PGH",  # https://docs.astral.sh/ruff/rules/#pygrep-hooks-pgh
-  "PIE",  # https://docs.astral.sh/ruff/rules/#flake8-pie-pie
-  "PL",   # https://docs.astral.sh/ruff/rules/#pylint-pl
-  "PGH",  # https://docs.astral.sh/ruff/rules/#pygrep-hooks-pgh
-  "PT",   # https://docs.astral.sh/ruff/rules/#flake8-pytest-style-pt
-  "PTH",  # https://docs.astral.sh/ruff/rules/#flake8-use-pathlib-pth
-  "Q",    # https://docs.astral.sh/ruff/rules/#flake8-quotes-q
-  "RET",  # https://docs.astral.sh/ruff/rules/#flake8-return-ret
-  "RSE",  # https://docs.astral.sh/ruff/rules/#flake8-raise-rse
-  "RUF",  # https://docs.astral.sh/ruff/rules/#ruff-specific-rules-ruf
-  "S",    # https://docs.astral.sh/ruff/rules/#flake8-bandit-s
-  "SIM",  # https://docs.astral.sh/ruff/rules/#flake8-simplify-sim
-  "TCH",  # https://docs.astral.sh/ruff/rules/#flake8-type-checking-tch
-  "TID",  # https://docs.astral.sh/ruff/rules/#flake8-tidy-imports-tid
-  "TRIO", # https://docs.astral.sh/ruff/rules/#flake8-trio-trio
-  "TRY",  # https://docs.astral.sh/ruff/rules/#tryceratops-try
-  "UP",   # https://docs.astral.sh/ruff/rules/#pyupgrade-up
-  "W",    # https://docs.astral.sh/ruff/rules/#warning-w
-]
+lint.select = ["ALL"]
 lint.ignore = [
+  "ANN101", # https://docs.astral.sh/ruff/rules/missing-type-function-argument/
   "D107",   # https://docs.astral.sh/ruff/rules/undocumented-public-init/
   "S314",   # https://docs.astral.sh/ruff/rules/suspicious-xml-element-tree-usage/
   "TRY003", # https://docs.astral.sh/ruff/rules/raise-vanilla-args/
   "ISC001", # https://docs.astral.sh/ruff/rules/single-line-implicit-string-concatenation/
+  "INP001", # https://docs.astral.sh/ruff/rules/implicit-namespace-package/
+  "EM",     # https://docs.astral.sh/ruff/rules/#flake8-errmsg-em
+  "ANN",    # https://docs.astral.sh/ruff/rules/#flake8-annotations-ann
+  "BLE",    # https://docs.astral.sh/ruff/rules/blind-except/
 ]
 
 [tool.ruff.lint.pycodestyle]
