@@ -26,6 +26,7 @@ from pydantic import (
     ConfigDict,
     Field,
     computed_field,
+    field_validator,
     model_validator,
 )
 
@@ -209,6 +210,14 @@ class _History(BaseModel, Generic[S]):
         """Return the upper limit of the history."""
         return self.states[-1].end_time
 
+    @field_validator("states", "state_history", mode="before")
+    @classmethod
+    def _filter_unavailable_states(cls, v: Any) -> Any:
+        if not isinstance(v, list):
+            return v
+
+        return [s for s in v if s["state"] != UNAVAILABLE]
+
     @classmethod
     def _get_hass_state_history(
         cls: type[Self],
@@ -260,21 +269,6 @@ class _History(BaseModel, Generic[S]):
         return lower_limit, end_time, state_history
 
     @classmethod
-    def _get_previous_state(
-        cls: type[Self],
-        *,
-        state_history: list[HassStateTypeInfo[S]],
-        remove_unavailable_states: bool = True,
-    ) -> HassStateTypeInfo[S] | None:
-        """Return the previous state from the state history."""
-        if remove_unavailable_states:
-            for s in reversed(state_history):
-                if s.state != UNAVAILABLE:
-                    return s
-
-        return state_history[-1] if state_history else None
-
-    @classmethod
     def from_state_history(
         cls: type[Self],
         hass: Hass,
@@ -282,7 +276,6 @@ class _History(BaseModel, Generic[S]):
         *,
         lower_limit: datetime,
         upper_limit: datetime | None = None,
-        remove_unavailable_states: bool = True,
         reverse: bool = False,
     ) -> Self:
         """Create a history from the Home Assistant history API.
@@ -293,7 +286,6 @@ class _History(BaseModel, Generic[S]):
             hass: The Home Assistant instance.
             lower_limit: The lower limit of the history.
             upper_limit: The upper limit of the history. If None, the current time is used.
-            remove_unavailable_states: Whether to remove unavailable states from the history.
             reverse: Whether to reverse the history.
 
         Returns:
@@ -314,24 +306,15 @@ class _History(BaseModel, Generic[S]):
         merged_states: list[StateTypeInfo[S]] = []
         while parsed_state_history:
             state = parsed_state_history.pop()  # Most recent state
-
             next_state = merged_states[-1] if merged_states else None
 
-            if (
-                state.last_updated > end_time
-                or (remove_unavailable_states and state.state == UNAVAILABLE)
-                or cls.filter_current_state_out(
-                    prev_state=cls._get_previous_state(
-                        state_history=parsed_state_history,
-                        remove_unavailable_states=remove_unavailable_states,
-                    ),
-                    curr_state=state,
-                    next_state=next_state,
-                    hass=hass,
-                )
+            if state.last_updated > end_time or cls.filter_current_state_out(
+                prev_state=parsed_state_history[-1] if parsed_state_history else None,
+                curr_state=state,
+                next_state=next_state,
+                hass=hass,
             ):
-                # Ignore this state because it's after the upper limit (or unavailable, and unavailable
-                # states should be removed)
+                # Ignore this state because it's after the upper limit
                 continue
 
             # Bring last changed forward to lower limit if it's before it
@@ -644,7 +627,7 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
         for room, room_stats in area_cleaned_by_room.items():
             if (area_cleaned := room_stats["area"]) >= room.minimum_clean_area:
                 self.log(
-                    "%s has been cleaned enough (%.2f m^2)",
+                    "%s has been cleaned enough (%.2f m²)",
                     room,
                     area_cleaned,
                 )
