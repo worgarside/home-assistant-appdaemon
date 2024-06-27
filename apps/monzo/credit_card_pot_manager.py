@@ -22,10 +22,8 @@ if TYPE_CHECKING:
 class CreditCardPotManager(Hass):  # type: ignore[misc]
     """Keep my credit card pot topped up with nightly notifications."""
 
-    ACTION_PHRASE: Final[Literal["TOP_UP_CREDIT_CARD_POT"]] = "TOP_UP_CREDIT_CARD_POT"
-    NOTIFICATION_ICON: Final[Literal["mdi:credit-card-plus-outline"]] = (
-        "mdi:credit-card-plus-outline"
-    )
+    ACTION_PHRASE: Final = "TOP_UP_CREDIT_CARD_POT"
+    NOTIFICATION_ICON: Final = "mdi:credit-card-plus-outline"
 
     client: MonzoClient
     credit_card_pot: Pot

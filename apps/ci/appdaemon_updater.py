@@ -68,7 +68,7 @@ class Updater(Hass):  # type: ignore[misc]
         """Get the latest AppDaemon release from GitHub."""
         del entity, attribute, kwargs
 
-        if old in (new, "unavailable") or not old:
+        if old in {new, "unavailable"} or not old:
             self.log("Skipping update to %s", new)
             return
 

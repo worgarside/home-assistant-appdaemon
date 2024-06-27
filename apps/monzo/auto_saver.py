@@ -223,7 +223,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
                 continue
 
             amount += tx.amount
-            breakdown.append(f"£{tx.amount/100:.2f} @ {tx.description}")
+            breakdown.append(f"£{tx.amount / 100:.2f} @ {tx.description}")
 
         return int(self.debit_transaction_percentage * amount), breakdown
 
@@ -258,7 +258,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
                 monzo_subtotal += mtx.amount
 
                 breakdown.append(
-                    f"£{-mtx.amount/100:.2f} @ {self.MULTISPACE_PATTERN.sub(' ', mtx.description)}",
+                    f"£{-mtx.amount / 100:.2f} @ {self.MULTISPACE_PATTERN.sub(' ', mtx.description)}",
                 )
 
         # subtract because Monzo transactions are negative in value

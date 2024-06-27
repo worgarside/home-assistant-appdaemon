@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Final, Literal
+from typing import Any, Final
 
 from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
 from PIL import Image
@@ -15,7 +15,7 @@ from wg_utilities.functions import force_mkdir
 
 PHOTOS_DIRECTORY: Final[Path] = Path("/homeassistant/www/images/cosmo")
 
-DIMENSION_OVERRIDE: Final[Literal[512]] = 512
+DIMENSION_OVERRIDE: Final = 512
 
 
 class WebPImage(MediaItem):
