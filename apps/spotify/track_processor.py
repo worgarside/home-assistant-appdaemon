@@ -17,7 +17,7 @@ from wg_utilities.loggers import add_warehouse_handler
 
 DECADE_PATTERN = compile_regex(r"^\d{3}0s$")
 _MONTH_LIST = "|".join(
-    [datetime.strptime(str(i + 1), "%m").strftime("%B") for i in range(12)],
+    [datetime.strptime(str(i + 1), "%m").strftime("%B") for i in range(12)],  # noqa: DTZ007
 )
 MONTHLY_PATTERN = compile_regex(rf"^({_MONTH_LIST}) '[0-9]{{2}}$")
 

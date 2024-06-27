@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from json import JSONDecodeError, dumps
 from pathlib import Path
 from time import sleep
@@ -183,7 +183,7 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
         self.client.deposit_into_pot(
             self.credit_card_pot,
             amount_pence=top_up_amount,
-            dedupe_id=datetime.now().strftime(f"{self.name}-%Y%m%d"),
+            dedupe_id=datetime.now(UTC).strftime(f"{self.name}-%Y%m%d"),
         )
 
         self.log("Topped up credit card pot by %i", top_up_amount)
