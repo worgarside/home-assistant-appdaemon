@@ -26,9 +26,7 @@ REPO_NAME: Final[str] = "worgarside/home-assistant"
 class LovelaceFileCommitter(Hass):  # type: ignore[misc]
     """AppDaemon app to commit the version file to GitHub."""
 
-    BRANCH_NAME: Final[Literal["chore/lovelace-ui-dashboards"]] = (
-        "chore/lovelace-ui-dashboards"
-    )
+    BRANCH_NAME: Final = "chore/lovelace-ui-dashboards"
     LOVELACE_FILE_PATTERN: Final[re.Pattern[str]] = re.compile(
         r"^lovelace(_dashboards|\..+)$",
     )

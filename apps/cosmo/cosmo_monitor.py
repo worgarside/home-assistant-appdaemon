@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import operator
 from datetime import datetime, timedelta, tzinfo
 from enum import StrEnum
 from json import dumps
@@ -75,21 +76,21 @@ class TaskStatus(StateValue):
     @property
     def is_room_cleaning(self) -> bool:
         """Return whether the task status is a room cleaning status."""
-        return self in (
+        return self in {
             TaskStatus.CLEANING,
             TaskStatus.ROOM_CLEANING,
             TaskStatus.ZONE_CLEANING,
-        )
+        }
 
     @property
     def is_paused(self) -> bool:
         """Return whether the task status is a paused status."""
-        return self in (
+        return self in {
             TaskStatus.CLEANING_PAUSED,
             TaskStatus.DOCKING_PAUSED,
             TaskStatus.MAP_CLEANING_PAUSED,
             TaskStatus.ROOM_CLEANING_PAUSED,
-        )
+        }
 
 
 class Room(StateValue):
@@ -236,7 +237,7 @@ class _History(BaseModel, Generic[S]):
 
         state_history: list[dict[str, Any]] = sorted(  # Oldest -> newest
             hass_history[0],
-            key=lambda x: x["last_updated"],
+            key=operator.itemgetter("last_updated"),
         )
 
         if state_history:
@@ -513,7 +514,7 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
         prev_value = None
 
         for area_state in area_cleaned_history:
-            if area_state.state not in (None, 0.0, prev_value):
+            if area_state.state not in {None, 0.0, prev_value}:
                 room_state = room_history.state_at(area_state.start_time)
 
                 area_cleaned_by_room.setdefault(

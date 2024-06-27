@@ -317,7 +317,7 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
 
         tempo_variable_name = "var.spotify_tempo_will"
 
-        if new in ("unknown", None, ""):
+        if new in {"unknown", None, ""}:
             self.log(
                 "`%s` has state `%s`, setting `%s` to `unknown`",
                 entity,
