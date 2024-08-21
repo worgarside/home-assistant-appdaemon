@@ -98,6 +98,9 @@ lint.ignore = [
   "EM",     # https://docs.astral.sh/ruff/rules/#flake8-errmsg-em
   "ANN",    # https://docs.astral.sh/ruff/rules/#flake8-annotations-ann
   "BLE",    # https://docs.astral.sh/ruff/rules/blind-except/
+  "DOC201", # https://docs.astral.sh/ruff/rules/docstring-missing-returns/
+  "DOC402", # https://docs.astral.sh/ruff/rules/docstring-missing-yields/
+  "DOC501", # https://docs.astral.sh/ruff/rules/docstring-missing-exception/
 ]
 
 [tool.ruff.lint.pycodestyle]
