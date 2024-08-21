@@ -391,25 +391,30 @@ class AutoSaver(Hass):  # type: ignore[misc]
             else "application/json"
         )
 
+        payload = {
+            "code": new,
+            "grant_type": "authorization_code",
+            "client_id": client.client_id,
+            "client_secret": client.client_secret,
+            "redirect_uri": self.redirect_uri_lookup[client],
+        }
+
         try:
             credentials: dict[str, Any] = client.post_json_response(  # type: ignore[assignment]
                 client.access_token_endpoint,
-                data={
-                    "code": new,
-                    "grant_type": "authorization_code",
-                    "client_id": client.client_id,
-                    "client_secret": client.client_secret,
-                    "redirect_uri": self.redirect_uri_lookup[client],
-                },
+                data=payload,
                 header_overrides={"Content-Type": content_type},
             )
         except HTTPError as err:
+            payload.pop("client_secret")
+
             self.error(
-                "Error response (%s %s) from %s: %s",
+                "Error response (%s %s) from %s: %s\n%s",
                 err.response.status_code,
                 err.response.reason,
                 err.response.url,
                 err.response.text,
+                payload,
             )
             return
 

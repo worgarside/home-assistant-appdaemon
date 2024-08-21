@@ -281,25 +281,29 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
 
         self.log("Consuming auth code %s", new)
 
+        payload = {
+            "code": new,
+            "grant_type": "authorization_code",
+            "client_id": self.client.client_id,
+            "client_secret": self.client.client_secret,
+            "redirect_uri": self.redirect_uri,
+        }
+
         try:
             credentials: dict[str, Any] = self.client.post_json_response(  # type: ignore[assignment]
                 self.client.access_token_endpoint,
-                data={
-                    "code": new,
-                    "grant_type": "authorization_code",
-                    "client_id": self.client.client_id,
-                    "client_secret": self.client.client_secret,
-                    "redirect_uri": self.redirect_uri,
-                },
+                data=payload,
                 header_overrides={"Content-Type": "application/x-www-form-urlencoded"},
             )
         except HTTPError as err:
+            payload.pop("client_secret")
             self.error(
-                "Error response (%s %s) from %s: %s",
+                "Error response (%s %s) from %s: %s\n%s",
                 err.response.status_code,
                 err.response.reason,
                 err.response.url,
                 err.response.text,
+                payload,
             )
             return
 
