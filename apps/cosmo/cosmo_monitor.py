@@ -171,7 +171,7 @@ class StateTypeInfo(BaseStateTypeInfo[S]):
 
         return data
 
-    @computed_field  # type: ignore[misc]
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def duration(self) -> timedelta:
         """Return the duration of the state."""
@@ -192,19 +192,19 @@ class _History(BaseModel, Generic[S]):
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
-    @computed_field  # type: ignore[misc]
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def duration(self) -> timedelta:
         """Return the total duration of the history."""
         return self.upper_limit - self.lower_limit
 
-    @computed_field  # type: ignore[misc]
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def lower_limit(self) -> AwareDatetime:
         """Return the lower limit of the history."""
         return self.states[0].start_time
 
-    @computed_field  # type: ignore[misc]
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def upper_limit(self) -> AwareDatetime:
         """Return the upper limit of the history."""
