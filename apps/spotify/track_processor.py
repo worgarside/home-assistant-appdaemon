@@ -103,7 +103,11 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
         Raises:
             Exception: if the desired track can't be found in the recently liked
         """
-        action_phrase, track_id = data.get("action", "0:0").split(":")
+        try:
+            action_phrase, track_id = data.get("action", "0:0").split(":")
+        except ValueError:
+            self.error("Invalid action data: %s", data)
+            return
 
         if not action_phrase.startswith("ADD_TRACK_TO_"):
             return
