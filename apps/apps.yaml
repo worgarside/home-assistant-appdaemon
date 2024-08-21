@@ -35,9 +35,9 @@ cosmo_monitor:
 
 # Log Processor
 
-log_processor:
-  module: log_processor
-  class: LogProcessor
+# log_processor:
+  # module: log_processor
+  # class: LogProcessor
 
 # Monzo
 
