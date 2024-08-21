@@ -21,8 +21,6 @@ from wg_utilities.clients.truelayer import Transaction as TrueLayerTransaction
 from wg_utilities.loggers import add_warehouse_handler
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Collection
-
     from appdaemon.entity import Entity  # type: ignore[import-untyped]
     from wg_utilities.clients.monzo import Pot
     from wg_utilities.clients.monzo import Transaction as MonzoTransaction
@@ -555,44 +553,39 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
     def update_transaction_records(self) -> None:
         """Get the newest transactions from Amex/Monzo."""
-        transactions: Collection[TrueLayerTransaction | MonzoTransaction]
-        get_transactions: Callable[
-            ...,
-            Collection[TrueLayerTransaction | MonzoTransaction],
-        ]
-        for transactions, timestamp_attr, sort_by, get_transactions in (  # type: ignore[assignment]
-            (
-                self._amex_transactions,
-                "timestamp",
-                lambda tx: tx.timestamp,
-                self.amex_card.get_transactions,
-            ),
-            (
-                self._monzo_transactions,
-                "created",
-                lambda tx: tx.created,
-                self.monzo_client.current_account.list_transactions,
-            ),
-        ):
-            from_datetime = (
+        amex_txs = self.amex_card.get_transactions(
+            from_datetime=(
                 self.last_auto_save
-                if not transactions
-                else getattr(
-                    max(transactions, key=sort_by),
-                    timestamp_attr,
-                )
+                if not self._amex_transactions
+                else max(self._amex_transactions, key=lambda tx: tx.timestamp).timestamp
                 + timedelta(seconds=1)
-            )
+            ),
+        )
 
-            recent_transactions = get_transactions(from_datetime=from_datetime)
+        self._amex_transactions.extend(amex_txs)
 
-            transactions.extend(recent_transactions)  # type: ignore[attr-defined]
+        self.log(
+            "Found %s new transactions for Amex (%i total)",
+            len(amex_txs),
+            len(self._amex_transactions),
+        )
 
-            self.log(
-                "Found %s new transactions (%i total)",
-                len(recent_transactions),
-                len(transactions),
-            )
+        monzo_txs = self.monzo_client.current_account.list_transactions(
+            from_datetime=(
+                self.last_auto_save
+                if not self._monzo_transactions
+                else max(self._monzo_transactions, key=lambda tx: tx.created).created
+                + timedelta(seconds=1)
+            ),
+        )
+
+        self._monzo_transactions.extend(monzo_txs)
+
+        self.log(
+            "Found %s new transactions (%i total)",
+            len(monzo_txs),
+            len(self._monzo_transactions),
+        )
 
     @property
     def amex_transactions(self) -> list[TrueLayerTransaction]:
