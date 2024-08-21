@@ -553,22 +553,26 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
     def update_transaction_records(self) -> None:
         """Get the newest transactions from Amex/Monzo."""
-        amex_txs = self.amex_card.get_transactions(
-            from_datetime=(
-                self.last_auto_save
-                if not self._amex_transactions
-                else max(self._amex_transactions, key=lambda tx: tx.timestamp).timestamp
-                + timedelta(seconds=1)
-            ),
-        )
+        if hasattr(self, "amex_card"):
+            amex_txs = self.amex_card.get_transactions(
+                from_datetime=(
+                    self.last_auto_save
+                    if not self._amex_transactions
+                    else max(
+                        self._amex_transactions,
+                        key=lambda tx: tx.timestamp,
+                    ).timestamp
+                    + timedelta(seconds=1)
+                ),
+            )
 
-        self._amex_transactions.extend(amex_txs)
+            self._amex_transactions.extend(amex_txs)
 
-        self.log(
-            "Found %s new transactions for Amex (%i total)",
-            len(amex_txs),
-            len(self._amex_transactions),
-        )
+            self.log(
+                "Found %s new transactions for Amex (%i total)",
+                len(amex_txs),
+                len(self._amex_transactions),
+            )
 
         monzo_txs = self.monzo_client.current_account.list_transactions(
             from_datetime=(
