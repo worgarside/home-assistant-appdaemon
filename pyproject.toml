@@ -7,7 +7,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "~3.12"
-wg-utilities = { extras = ["clients"], version = "^5.15.4" }
+wg-utilities = { extras = ["clients"], version = "^5.16.1" }
 pygithub = "^2.3.0"
 gitpython = "^3.1.43"
 pillow = "^10.4.0"
