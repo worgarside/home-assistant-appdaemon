@@ -106,7 +106,6 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
         try:
             action_phrase, track_id = data.get("action", "0:0").split(":")
         except ValueError:
-            self.error("Invalid action data: %s", data)
             return
 
         if not action_phrase.startswith("ADD_TRACK_TO_"):

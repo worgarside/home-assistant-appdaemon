@@ -170,7 +170,6 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
         try:
             action_phrase, top_up_amount_str = data.get("action", "0:0").split(":")
         except ValueError:
-            self.error("Invalid action data: %s", data)
             return
 
         if action_phrase != self.ACTION_PHRASE:
