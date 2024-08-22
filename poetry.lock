@@ -1663,30 +1663,32 @@ watchdog = ["watchdog (>=2.3)"]
 
 [[package]]
 name = "wg-utilities"
-version = "5.15.4"
+version = "5.16.1"
 description = "Loads of useful stuff for the things I do :)"
 optional = false
 python-versions = "<4.0,>=3.11"
 files = [
-    {file = "wg_utilities-5.15.4-py3-none-any.whl", hash = "sha256:c1d415ef3acc9df94452a10513bdd599d45292b5399b7c9c8b607d86806517d5"},
-    {file = "wg_utilities-5.15.4.tar.gz", hash = "sha256:74a0a3e273fa02696e5ad9984d805d4c16f603d19d592c6e75e93fc55a1a4290"},
+    {file = "wg_utilities-5.16.1-py3-none-any.whl", hash = "sha256:553853e6a1978fdf8500d132050be2272d8a30827b56aa2de643e61d5f74bc56"},
+    {file = "wg_utilities-5.16.1.tar.gz", hash = "sha256:77675177764d8e616744334bb6a4c6bfc62f593dd26684f09364c6eaf2e63e5f"},
 ]
 
 [package.dependencies]
 flask = {version = ">=2.0.2", optional = true, markers = "extra == \"clients\""}
 pydantic = {version = "<3.0.0", optional = true, markers = "extra == \"clients\" or extra == \"devices-yamaha-yas-209\""}
-pyjwt = {version = ">=2.6,<2.9", optional = true, markers = "extra == \"clients\""}
-requests = {version = ">=2.26.0", optional = true, markers = "extra == \"clients\" or extra == \"exceptions\" or extra == \"logging\""}
+pyjwt = {version = ">=2.6,<2.10", optional = true, markers = "extra == \"clients\""}
+requests = {version = ">=2.26.0", optional = true, markers = "extra == \"clients\" or extra == \"exceptions\" or extra == \"loggers\" or extra == \"logging\""}
 tzlocal = {version = "*", optional = true, markers = "extra == \"clients\""}
 
 [package.extras]
-clients = ["flask (>=2.0.2)", "pydantic (<3.0.0)", "pyjwt (>=2.6,<2.9)", "requests (>=2.26.0)", "tzlocal"]
+clients = ["flask (>=2.0.2)", "pydantic (<3.0.0)", "pyjwt (>=2.6,<2.10)", "requests (>=2.26.0)", "tzlocal"]
 devices-dht22 = ["pigpio"]
 devices-epd = ["pillow", "rpi.gpio", "spidev"]
 devices-yamaha-yas-209 = ["async-upnp-client", "pydantic (<3.0.0)", "xmltodict"]
 exceptions = ["requests (>=2.26.0)"]
 functions = ["lxml (==5.2.2)"]
+loggers = ["requests (>=2.26.0)"]
 logging = ["requests (>=2.26.0)"]
+mqtt = ["paho-mqtt (>=2.1.0,<3.0.0)"]
 testing = ["botocore"]
 
 [[package]]
@@ -1888,4 +1890,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "~3.12"
-content-hash = "cc08e981b208f29963b59603528b4425a623142d99ba3881800d09db402090d2"
+content-hash = "2efe94360a3bb35e1727b213f6fdbd6a7ecd66bb9a3d6ce036e08e2c6f4b8759"

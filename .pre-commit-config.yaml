@@ -72,7 +72,7 @@ repos:
           - pygithub==2.3.0
           - types-Pillow
           - types-requests
-          - wg-utilities==5.15.4
+          - wg-utilities==5.16.1
           - git+https://github.com/AppDaemon/appdaemon.git
 
   - repo: https://github.com/pre-commit/pygrep-hooks
