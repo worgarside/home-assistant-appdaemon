@@ -87,7 +87,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         self.redirect_uri_lookup: dict[MonzoClient | TrueLayerClient, str] = {
             self.truelayer_client: "https://console.truelayer.com/redirect-page",
-            self.monzo_client: "http://localhost:5001/get_auth_code",
+            self.monzo_client: "https://console.truelayer.com/redirect-page",
         }
 
         self.input_text_client_lookup: dict[str, MonzoClient | TrueLayerClient] = {
@@ -379,7 +379,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
         client = self.input_text_client_lookup[entity]
 
-        if len(new) == 1:
+        if len(new) <= 1:
             self.send_auth_link_notification(client)
             return
 
@@ -397,12 +397,14 @@ class AutoSaver(Hass):  # type: ignore[misc]
             "client_id": client.client_id,
             "client_secret": client.client_secret,
             "redirect_uri": self.redirect_uri_lookup[client],
+            "scope": " ".join(client.scopes),
         }
 
         try:
             credentials: dict[str, Any] = client.post_json_response(  # type: ignore[assignment]
                 client.access_token_endpoint,
-                data=payload,
+                data=payload if isinstance(client, MonzoClient) else None,
+                json=payload if isinstance(client, TrueLayerClient) else None,
                 header_overrides={"Content-Type": content_type},
             )
         except HTTPError as err:
