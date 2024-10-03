@@ -381,7 +381,13 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
                 playlist,
             )
 
+            self.log("Cleared %s", playlist.name)
+
+            top_tracks = self.spotify.current_user.get_top_tracks(time_range, limit=250)
+
             self.spotify.add_tracks_to_playlist(
-                self.spotify.current_user.get_top_tracks(time_range, limit=250),
+                top_tracks,
                 playlist,
             )
+
+            self.log("Added %i tracks to %s", len(top_tracks), playlist.name)
