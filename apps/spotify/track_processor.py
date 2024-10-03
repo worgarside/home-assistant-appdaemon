@@ -373,7 +373,8 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
 
     def update_top_track_playlists(self, _: dict[str, Any]) -> None:
         """Update the top tracks playlists for the current user."""
-        for time_range in ["short_term", "medium_term", "long_term"]:
+        time_range: Literal["short_term", "medium_term", "long_term"]
+        for time_range in ("short_term", "medium_term", "long_term"):
             playlist = self.playlists[f"top_tracks_{time_range}"]
 
             self.spotify.remove_tracks_from_playlist(
