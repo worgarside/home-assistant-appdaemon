@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from json import dumps
 from pathlib import Path
@@ -77,6 +77,15 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
             "pixel_now_playing": self.spotify.get_playlist_by_id(
                 "7vK46qf4I352doLdlSG9G0",
             ),
+            "top_tracks_short_term": self.spotify.get_playlist_by_id(
+                "1Cu7S2Xukkaar7dXhgKRLh",
+            ),
+            "top_tracks_medium_term": self.spotify.get_playlist_by_id(
+                "2LnNHPx0us9ZOPZivXgI6X",
+            ),
+            "top_tracks_long_term": self.spotify.get_playlist_by_id(
+                "52GNi98hta36yjqyhZCQQ3",
+            ),
         }
 
         self.run_every(self.process_liked_tracks, "now", 15 * 60)
@@ -86,6 +95,12 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
             "sensor.spotify_will_garside_media_title",
         )
         self.listen_event(self.add_track_to_playlist, "mobile_app_notification_action")
+
+        self.run_every(
+            self.update_top_track_playlists,
+            "now",
+            timedelta(days=3).total_seconds(),
+        )
 
     def add_track_to_playlist(
         self,
@@ -355,3 +370,25 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
                 value=track.tempo,
                 force_update=True,
             )
+
+    def update_top_track_playlists(self, _: dict[str, Any]) -> None:
+        """Update the top tracks playlists for the current user."""
+        time_range: Literal["short_term", "medium_term", "long_term"]
+        for time_range in ("short_term", "medium_term", "long_term"):
+            playlist = self.playlists[f"top_tracks_{time_range}"]
+
+            self.spotify.remove_tracks_from_playlist(
+                playlist.tracks,
+                playlist,
+            )
+
+            self.log("Cleared %s", playlist.name)
+
+            top_tracks = self.spotify.current_user.get_top_tracks(time_range, limit=250)
+
+            self.spotify.add_tracks_to_playlist(
+                top_tracks,
+                playlist,
+            )
+
+            self.log("Added %i tracks to %s", len(top_tracks), playlist.name)

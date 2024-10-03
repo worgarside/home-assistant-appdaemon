@@ -8,7 +8,7 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = "~3.12"
-wg-utilities = { extras = ["clients"], version = "^5.16.1" }
+wg-utilities = {version = "5.17.0", extras = ["clients"]}
 pygithub = "^2.4.0"
 gitpython = "^3.1.43"
 pillow = "^10.4.0"
