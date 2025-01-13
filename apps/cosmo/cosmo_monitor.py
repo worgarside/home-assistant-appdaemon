@@ -240,8 +240,7 @@ class _History(BaseModel, Generic[S]):
 
         if not hass_history or len(hass_history) != 1:
             raise ValueError(
-                "Unexpected response from Home Assistant"
-                f" history API: {hass_history!r}",
+                f"Unexpected response from Home Assistant history API: {hass_history!r}",
             )
 
         state_history: list[dict[str, Any]] = sorted(  # Oldest -> newest
