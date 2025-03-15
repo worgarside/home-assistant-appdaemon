@@ -14,7 +14,6 @@ from requests import HTTPError
 from wg_utilities.clients import TrueLayerClient
 from wg_utilities.clients.oauth_client import OAuthCredentials
 from wg_utilities.clients.truelayer import Account, Bank, Card
-from wg_utilities.loggers import add_warehouse_handler
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -38,8 +37,6 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
 
     def initialize(self) -> None:
         """Initialize the app."""
-        add_warehouse_handler(self.err)
-
         self.bank = Bank[self.args["bank_ref"].upper().replace(" ", "_")]
         self.auth_code_input_text = (
             f"input_text.truelayer_auth_token_{self.bank.name.lower()}"

@@ -18,7 +18,6 @@ from wg_utilities.clients import MonzoClient, SpotifyClient, TrueLayerClient
 from wg_utilities.clients.oauth_client import OAuthCredentials
 from wg_utilities.clients.truelayer import Bank, Card
 from wg_utilities.clients.truelayer import Transaction as TrueLayerTransaction
-from wg_utilities.loggers import add_warehouse_handler
 
 if TYPE_CHECKING:
     from appdaemon.entity import Entity  # type: ignore[import-untyped]
@@ -51,7 +50,6 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
     def initialize(self) -> None:
         """Initialize the app."""
-        add_warehouse_handler(self.err)
         truelayer_client_id = self.args["truelayer_client_id"]
 
         self.monzo_client = MonzoClient(

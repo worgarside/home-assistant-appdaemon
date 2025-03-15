@@ -13,7 +13,6 @@ from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
 from github import Github, InputGitAuthor
 from github.Auth import Token
 from github.GithubException import GithubException
-from wg_utilities.loggers import add_warehouse_handler
 
 if TYPE_CHECKING:
     from github.Branch import Branch
@@ -39,8 +38,6 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
 
     def initialize(self) -> None:
         """Initialize the app."""
-        add_warehouse_handler(self.err)
-
         self.repo = Github(auth=Token(self.args["github_token"])).get_repo(
             REPO_NAME,
         )
