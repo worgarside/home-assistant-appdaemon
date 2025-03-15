@@ -67,9 +67,9 @@ repos:
           - --strict
           - --show-error-codes
         additional_dependencies:
-          - gitpython==3.1.43
-          - pydantic==2.7.1
-          - pygithub==2.4.0
+          - gitpython==3.1.44
+          - pydantic==2.10.6
+          - pygithub==2.6.1
           - types-Pillow
           - types-requests
           - wg-utilities==5.17.3
@@ -87,4 +87,4 @@ repos:
     hooks:
       - id: codespell
         additional_dependencies:
-          - tomli==2.0.1
+          - tomli==2.2.1
