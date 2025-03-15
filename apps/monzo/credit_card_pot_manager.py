@@ -13,7 +13,6 @@ from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
 from requests import HTTPError
 from wg_utilities.clients import MonzoClient
 from wg_utilities.clients.oauth_client import OAuthCredentials
-from wg_utilities.loggers import add_warehouse_handler
 
 if TYPE_CHECKING:
     from wg_utilities.clients.monzo import Pot
@@ -30,8 +29,6 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
 
     def initialize(self) -> None:
         """Initialize the app."""
-        add_warehouse_handler(self.err)
-
         self.notification_id = "monzo_credit_card_pot_access_token_expired"
         self.auth_code_input_text = "input_text.monzo_auth_token_cc_pot_top_up"
         self.redirect_uri = "https://console.truelayer.com/redirect-page"
