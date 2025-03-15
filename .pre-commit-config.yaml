@@ -9,13 +9,13 @@ repos:
       - id: sync-additional-dependencies
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.6
+    rev: v0.9.10
     hooks:
       - id: ruff-format
       - id: ruff
 
   - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.6
+    rev: v1.7.7
     hooks:
       - id: actionlint
 
@@ -60,7 +60,7 @@ repos:
           - --strict
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.14.1
+    rev: v1.15.0
     hooks:
       - id: mypy
         args:
@@ -83,7 +83,7 @@ repos:
       - id: python-check-mock-methods
 
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.3.0
+    rev: v2.4.1
     hooks:
       - id: codespell
         additional_dependencies:
