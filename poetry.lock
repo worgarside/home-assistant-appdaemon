@@ -1933,19 +1933,22 @@ watchdog = ["watchdog (>=2.3)"]
 
 [[package]]
 name = "wg-utilities"
-version = "5.17.3"
+version = "5.17.4"
 description = "Loads of useful stuff for the things I do :)"
 optional = false
 python-versions = ">=3.11"
 groups = ["main"]
 files = [
-    {file = "wg_utilities-5.17.3-py3-none-any.whl", hash = "sha256:ad38a97ccacb11e56e73464f92379fe3ac8a50ef408fce61263f92ef746d8247"},
-    {file = "wg_utilities-5.17.3.tar.gz", hash = "sha256:73e586d32d6ec5e7bb8ba6eca8ab46f3ea2ccd855601f7bbe971f7b605307710"},
+    {file = "wg_utilities-5.17.4-py3-none-any.whl", hash = "sha256:0678ef7e9d80fdf29fa77c28f8a5a1507a38f6bd70de9cd2b6025b1dad9bf896"},
+    {file = "wg_utilities-5.17.4.tar.gz", hash = "sha256:6ebb0422614e035428da0b65eb0b461aad71552d880f6df948bbe9ebedbd115f"},
 ]
 
 [package.dependencies]
 flask = {version = "*", optional = true, markers = "extra == \"clients\""}
-pydantic = {version = "*", optional = true, markers = "extra == \"clients\""}
+pydantic = [
+    {version = ">=2.9.0,<3.0.0"},
+    {version = ">=2.9.0,<3.0.0", optional = true, markers = "extra == \"clients\""},
+]
 pyjwt = {version = "*", optional = true, markers = "extra == \"clients\""}
 requests = {version = "*", optional = true, markers = "extra == \"clients\""}
 tzlocal = {version = "*", optional = true, markers = "extra == \"clients\""}
@@ -2166,4 +2169,4 @@ propcache = ">=0.2.0"
 [metadata]
 lock-version = "2.1"
 python-versions = "~3.12"
-content-hash = "2cc1c2484096a6910beb1dab7fb014cf6aaed1a8a0564b765c7fd1845ea4f658"
+content-hash = "68f5748ae2ad103f3113fb335702e9b1f70dca49cc22f233d594f15268ff546e"
