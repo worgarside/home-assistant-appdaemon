@@ -250,7 +250,6 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
         attribute: Literal["state"],
         old: str,
         new: str,
-        pin_app: bool,  # noqa: FBT001
         **kwargs: dict[str, Any],
     ) -> None:
         """Process an update from the Pixel Now Playing Tasker task.
@@ -260,10 +259,9 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
             attribute (str): the attribute that triggered the update
             old (str): the old value
             new (str): the new value, in the format "Track Name by Artist"
-            pin_app (bool): whether the app should be pinned
             kwargs (dict[str, Any]): any other kwargs
         """
-        _ = entity, old, pin_app, kwargs
+        _ = entity, old, kwargs
 
         if attribute != "state" or not new:
             return
@@ -312,7 +310,6 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
         attribute: Literal["state"],
         old: str,
         new: str,
-        pin_app: bool,  # noqa: FBT001
         **kwargs: dict[str, Any],
     ) -> None:
         """Update the tempo variable for a given user.
@@ -322,10 +319,9 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
             attribute (str): the attribute that triggered the update
             old (str): the old value
             new (str): the new value
-            pin_app (bool): whether the app should be pinned
             kwargs (dict[str, Any]): any other kwargs
         """
-        _ = entity, old, pin_app, kwargs
+        _ = entity, old, kwargs
 
         if attribute != "state" or not new:
             return
