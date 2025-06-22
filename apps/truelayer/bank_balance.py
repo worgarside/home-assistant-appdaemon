@@ -230,11 +230,10 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
         attribute: Literal["state"],
         old: str,
         new: str,
-        pin_app: bool,  # noqa: FBT001
         **kwargs: dict[str, Any],
     ) -> None:
         """Consume the auth token and get the access token."""
-        _ = entity, attribute, old, pin_app, kwargs
+        _ = entity, attribute, old, kwargs
 
         if not new:
             return
