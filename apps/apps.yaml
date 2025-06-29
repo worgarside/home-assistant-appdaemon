@@ -22,9 +22,9 @@ version_file_committer:
 
 # Robot Vacuum
 
-cosmo_monitor:
-  module: cosmo_monitor
-  class: CosmoMonitor
+# cosmo_monitor:
+#   module: cosmo_monitor
+#   class: CosmoMonitor
 
 # Log Processor
 
