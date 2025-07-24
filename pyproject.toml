@@ -10,7 +10,7 @@ package-mode = false
 python = "~3.12"
 wg-utilities = {extras = ["clients"], version = "^5.17.4"}
 pygithub = "^2.4.0"
-gitpython = "^3.1.44"
+gitpython = "^3.1.45"
 pillow = "^11.2.1"
 
 [tool.poetry.group.dev]

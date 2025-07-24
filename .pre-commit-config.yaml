@@ -67,7 +67,7 @@ repos:
           - --strict
           - --show-error-codes
         additional_dependencies:
-          - gitpython==3.1.44
+          - gitpython==3.1.45
           - pydantic==2.10.6
           - pygithub==2.6.1
           - types-Pillow
