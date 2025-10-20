@@ -75,7 +75,7 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
             return
 
         monzo_current_account_balance = float(
-            self.get_state("var.truelayer_balance_monzo_current_account"),
+            self.get_state("sensor.monzo_will_current_account_balance"),
         )
 
         min_remainder = float(

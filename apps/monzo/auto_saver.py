@@ -120,7 +120,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
                 self._last_auto_save.entity_id,
                 self._naughty_transaction_pattern.entity_id,
                 self._naughty_transaction_percentage.entity_id,
-                "var.truelayer_balance_monzo_current_account",
+                "sensor.monzo_will_current_account_balance",
             ],
         )
 
