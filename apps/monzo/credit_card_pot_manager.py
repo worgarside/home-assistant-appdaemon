@@ -52,7 +52,7 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
         """Top up (or send a notification to) the credit card pot."""
         amex_balance = float(self.get_state("var.truelayer_balance_amex"))
         monzo_credit_cards_balance = float(
-            self.get_state("var.truelayer_balance_monzo_credit_cards"),
+            self.get_state("sensor.monzo_will_credit_cards_balance"),
         )
 
         if (deficit := round(amex_balance - monzo_credit_cards_balance, 2)) <= 0.0:
