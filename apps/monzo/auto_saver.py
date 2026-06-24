@@ -543,11 +543,9 @@ class AutoSaver(Hass):
             message = (
                 f"TrueLayer access token for {client.bank} (auto-saver) has expired!"
             )
-        elif isinstance(client, MonzoClient):
+        else:
             title = "Monzo (auto-saver) Access Token Expired"
             message = "Monzo access token has expired!"
-        else:
-            raise TypeError(f"Invalid client: {client!r}")
 
         self.call_service(
             "script/turn_on",
