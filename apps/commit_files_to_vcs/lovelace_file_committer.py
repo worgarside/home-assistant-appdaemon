@@ -7,9 +7,9 @@ from functools import lru_cache
 from http import HTTPStatus
 from json import dumps, loads
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
+from appdaemon.plugins.hass.hassapi import Hass
 from github import Github, InputGitAuthor
 from github.Auth import Token
 from github.GithubException import GithubException
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 REPO_NAME: Final[str] = "worgarside/home-assistant"
 
 
-class LovelaceFileCommitter(Hass):  # type: ignore[misc]
+class LovelaceFileCommitter(Hass):
     """AppDaemon app to commit the version file to GitHub."""
 
     BRANCH_NAME: Final = "chore/lovelace-ui-dashboards"
@@ -50,7 +50,7 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
         self.listen_event(self.commit_lovelace_files, "folder_watcher")
 
         # Run on app init to cover bugfixes/restarts etc.
-        self.commit_lovelace_files("folder_watcher", {}, {})
+        self.commit_lovelace_files("folder_watcher", {})
 
     def _process_lovelace_file(self, file: Path) -> None:
         file_content = file.read_text(encoding="utf-8").strip()
@@ -148,18 +148,20 @@ class LovelaceFileCommitter(Hass):  # type: ignore[misc]
 
         self.persistent_notification(
             title="Lovelace UI Dashboard Files Updated",
-            id=f"lovelace_ui_dashboard_files_updated_{pr_prefix}",
+            id=hash(f"lovelace_ui_dashboard_files_updated_{pr_prefix}"),
             message=f"A **[pull request]({pr.html_url})** has been {pr_prefix.lower()}ated for the"
             " UI Lovelace dashboards.",
         )
 
     def commit_lovelace_files(
         self,
-        _: Literal["folder_watcher"],
+        event_type: str,
         data: dict[str, Any],
-        ___: dict[str, str],
+        **kwargs: Any,
     ) -> None:
         """Commit the version file to GitHub on startup."""
+        del event_type, kwargs
+
         if data and not self.LOVELACE_FILE_PATTERN.fullmatch(
             data.get("dest_file", data.get("file", "")),
         ):

@@ -12,13 +12,12 @@ from typing import (
     Any,
     ClassVar,
     Final,
-    Literal,
     Self,
     TypedDict,
     TypeVar,
 )
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
+from appdaemon.plugins.hass.hassapi import Hass
 from pydantic import (
     AwareDatetime,
     BaseModel,
@@ -463,7 +462,7 @@ class AreaCleanedByRoom(TypedDict):
     end_time: datetime
 
 
-class CosmoMonitor(Hass):  # type: ignore[misc]
+class CosmoMonitor(Hass):
     """Monitors the Cosmo vacuum's cleaning history."""
 
     def initialize(self) -> None:
@@ -476,7 +475,6 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
             attribute="state",
             old=TaskStatus.ROOM_CLEANING,
             new=TaskStatus.COMPLETED,
-            kwargs={},
         )
 
     def _get_area_cleaned_by_room(
@@ -570,11 +568,11 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
 
     def log_cleaning_time(
         self,
-        entity: Literal["sensor.cosmo_task_status"],
-        attribute: Literal["state"],
-        old: TaskStatus,
-        new: TaskStatus,
-        kwargs: dict[str, Any],
+        entity: str,
+        attribute: str,
+        old: Any,
+        new: Any,
+        **kwargs: Any,
     ) -> None:
         """Deduces and records if a one or more rooms have been properly cleaned."""
         del entity, attribute, kwargs

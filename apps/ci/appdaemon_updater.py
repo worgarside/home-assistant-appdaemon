@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 from os import environ
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
+from appdaemon.plugins.hass.hassapi import Hass
 from git import GitCommandError, Repo
 
 if TYPE_CHECKING:
-    from appdaemon.entity import Entity  # type: ignore[import-untyped]
+    from appdaemon.entity import Entity
 
 environ["GIT_SSH_COMMAND"] = (
     "ssh -o StrictHostKeyChecking=no -i /homeassistant/.ssh/github"
 )
 
 
-class Updater(Hass):  # type: ignore[misc]
+class Updater(Hass):
     """AppDaemon app to update AppDaemon to the latest release."""
 
     REPO: ClassVar[Repo] = Repo("/config")
@@ -59,11 +59,11 @@ class Updater(Hass):  # type: ignore[misc]
 
     def get_latest_release(
         self,
-        entity: Literal["input_text.ad_get_latest_release"],
-        attribute: Literal["state"],
-        old: str,
-        new: str,
-        kwargs: dict[str, Any],
+        entity: str,
+        attribute: str,
+        old: Any,
+        new: Any,
+        **kwargs: Any,
     ) -> None:
         """Get the latest AppDaemon release from GitHub."""
         del entity, attribute, kwargs

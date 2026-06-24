@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import string
 from enum import StrEnum
 from http import HTTPStatus
 from json import dumps
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 from urllib import parse
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
+from appdaemon.plugins.hass.hassapi import Hass
 from requests import HTTPError
 from wg_utilities.clients import TrueLayerClient
 from wg_utilities.clients.oauth_client import OAuthCredentials
@@ -28,7 +29,7 @@ class EntityType(StrEnum):
     CARD = "card"
 
 
-class BankBalanceGetter(Hass):  # type: ignore[misc]
+class BankBalanceGetter(Hass):
     """Get bank account/card balances from TrueLayer."""
 
     bank: Bank
@@ -177,7 +178,7 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
             "client_id": self.client.client_id,
             "redirect_uri": self.redirect_uri,
             "response_type": "code",
-            "state": "abcdefghijklmnopqrstuvwxyz",
+            "state": string.ascii_lowercase,
             "access_type": "offline",
             "prompt": "consent",
             "scope": " ".join(self.client.scopes),
@@ -227,10 +228,10 @@ class BankBalanceGetter(Hass):  # type: ignore[misc]
     def consume_auth_token(
         self,
         entity: str,
-        attribute: Literal["state"],
-        old: str,
-        new: str,
-        **kwargs: dict[str, Any],
+        attribute: str,
+        old: Any,
+        new: Any,
+        **kwargs: Any,
     ) -> None:
         """Consume the auth token and get the access token."""
         _ = entity, attribute, old, kwargs

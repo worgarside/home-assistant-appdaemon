@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
+from appdaemon.plugins.hass.hassapi import Hass
 from github import Github, InputGitAuthor
 from github.Auth import Token
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 REPO_NAME: Final[str] = "worgarside/home-assistant"
 
 
-class VersionFileCommitter(Hass):  # type: ignore[misc]
+class VersionFileCommitter(Hass):
     """AppDaemon app to commit the version file to GitHub."""
 
     VERSION_FILE_PATH: Final[Path] = Path("/homeassistant/.HA_VERSION")
@@ -35,15 +35,17 @@ class VersionFileCommitter(Hass):  # type: ignore[misc]
         self.listen_event(self.commit_version_file, "homeassistant_start")
 
         # Run on app init to cover system reboot
-        self.commit_version_file("homeassistant_start", {}, {})
+        self.commit_version_file("homeassistant_start", {})
 
     def commit_version_file(
         self,
-        _: Literal["homeassistant_start"],
-        __: dict[str, Any],
-        ___: dict[str, str],
+        event_type: str,
+        data: dict[str, Any],
+        **kwargs: Any,
     ) -> None:
         """Commit the version file to GitHub on startup."""
+        del event_type, data, kwargs
+
         local_version = self.VERSION_FILE_PATH.read_text(encoding="utf-8").strip()
 
         self.log("Local version: %s", local_version)
