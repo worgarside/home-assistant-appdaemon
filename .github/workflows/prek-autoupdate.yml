@@ -1,0 +1,88 @@
+---
+name: Prek Auto-Update
+
+on:
+  schedule:
+    - cron: 0 1 * * *
+
+  workflow_dispatch:
+
+jobs:
+  prek-autoupdate:
+    name: Update Prek Hooks
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BRANCH: chore/prek-autoupdate
+    steps:
+      - name: Clone Repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.WORGARSIDE_DEV_TOKEN }}
+
+      - name: Switch to ${{ env.BRANCH }}
+        id: switch-branch
+        run: git checkout ${{ env.BRANCH }}
+        continue-on-error: true
+
+      - name: Create ${{ env.BRANCH }}
+        if: steps.switch-branch.outcome == 'failure'
+        run: git checkout -b ${{ env.BRANCH }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install prek
+        run: |
+          uv tool install prek
+          echo "$(uv tool bin-dir)" >> $GITHUB_PATH
+
+      - name: prek auto-update
+        id: update
+        run: prek auto-update --cooldown-days 3 > /tmp/output 2>&1
+
+      - name: Commit Changes
+        id: commit
+        run: |
+          if [[ -z $(git status -s) ]]; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git config --global user.name "worgarside-dev"
+          git config --global user.email "worgarside.dev@gmail.com"
+
+          git add .
+
+          git commit -m "ci: prek autoupdate" --no-verify
+
+          git push origin ${{ env.BRANCH }}
+
+          echo "pr=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Create Pull Request
+        # yamllint disable-line rule:line-length
+        if: steps.switch-branch.outcome == 'failure' && steps.commit.outputs.pr == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.WORGARSIDE_DEV_TOKEN }}
+          PR_TITLE: 'ci: 🤖 `prek autoupdate`'
+        run: |
+          PR=$(
+            gh pr create \
+              --repo ${{ github.repository }} \
+              --title "${PR_TITLE}" \
+              -F /tmp/output \
+              --base main \
+              --head ${{ env.BRANCH }} \
+              --label tools
+          )
+
+          GH_TOKEN=${{ secrets.WORGARSIDE_TOKEN }} gh pr merge \
+            "${PR}" \
+            --repo ${{ github.repository }} \
+            --squash \
+            --auto

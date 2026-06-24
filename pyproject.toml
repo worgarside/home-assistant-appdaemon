@@ -84,12 +84,43 @@ warn_untyped_fields = true
 skip = '*.json,*.csv,*.xml,*.lock'
 ignore-words-list = "hass,ags"
 
+[tool.semantic_release]
+tag_format = "{version}"
+version_toml = ["pyproject.toml:project.version"]
+major_on_zero = false
+allow_zero_version = true
+build_command = """
+    python -m pip install uv
+    uv lock --upgrade-package "$PACKAGE_NAME"
+    git add uv.lock
+  """
+
+[tool.semantic_release.commit_parser_options]
+allowed_tags = [
+  "build",
+  "chore",
+  "ci",
+  "deps",
+  "docs",
+  "hotfix",
+  "feat",
+  "fix",
+  "perf",
+  "style",
+  "refactor",
+  "test",
+]
+minor_tags = ["feat"]
+patch_tags = ["deps", "fix", "hotfix", "perf", "build"]
+parse_squash_commits = false
+
 [tool.ruff]
 fix = true
 line-length = 90
-lint.select = ["ALL"]
-lint.ignore = [
-  "ANN101", # https://docs.astral.sh/ruff/rules/missing-type-function-argument/
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
   "D107",   # https://docs.astral.sh/ruff/rules/undocumented-public-init/
   "S314",   # https://docs.astral.sh/ruff/rules/suspicious-xml-element-tree-usage/
   "TRY003", # https://docs.astral.sh/ruff/rules/raise-vanilla-args/
