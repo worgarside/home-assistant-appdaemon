@@ -1,23 +1,22 @@
-[tool.poetry]
+[project]
 name = "ha-appdaemon"
 version = "0.21.1"
 description = ""
-authors = ["Will Garside <worgarside@gmail.com>"]
 readme = "README.md"
-package-mode = false
+requires-python = ">=3.12,<3.13"
+authors = [{ name = "Will Garside", email = "worgarside@gmail.com" }]
+dependencies = [
+  "wg-utilities[clients]>=5.17.4,<6",
+  "pygithub>=2.4.0,<3",
+  "gitpython>=3.1.44,<4",
+  "pillow>=11.2.1,<12",
+]
 
-[tool.poetry.dependencies]
-python = "~3.12"
-wg-utilities = {extras = ["clients"], version = "^5.17.4"}
-pygithub = "^2.4.0"
-gitpython = "^3.1.44"
-pillow = "^11.2.1"
+[dependency-groups]
+dev = ["appdaemon==4.5.0"]
 
-[tool.poetry.group.dev]
-optional = true
-
-[tool.poetry.group.dev.dependencies]
-appdaemon = { git = "https://github.com/AppDaemon/appdaemon.git" }
+[tool.uv]
+package = false
 
 [tool.mypy]
 plugins = ["pydantic.mypy"]
