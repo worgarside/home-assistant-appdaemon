@@ -12,7 +12,6 @@ from typing import (
     Any,
     ClassVar,
     Final,
-    Generic,
     Literal,
     Self,
     TypedDict,
@@ -129,7 +128,7 @@ class Room(StateValue):
 S = TypeVar("S", bound=StateValue | float)
 
 
-class BaseStateTypeInfo(BaseModel, Generic[S]):
+class BaseStateTypeInfo[S: StateValue | float](BaseModel):
     """Information about a state type."""
 
     state: S
@@ -182,7 +181,7 @@ class StateTypeInfo(BaseStateTypeInfo[S]):
         return f"{self.state}\t{self.start_time!s} - {self.end_time!s}"
 
 
-class _History(BaseModel, Generic[S]):
+class _History[S: StateValue | float](BaseModel):
     """A history of a state entity."""
 
     ENTITY_ID: ClassVar[str]
