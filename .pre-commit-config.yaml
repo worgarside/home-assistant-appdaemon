@@ -7,6 +7,8 @@ repos:
     rev: 1.5.1
     hooks:
       - id: sync-additional-dependencies
+        args:
+          - --package-manager=uv
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.18
@@ -67,13 +69,13 @@ repos:
           - --strict
           - --show-error-codes
         additional_dependencies:
-          - gitpython==3.1.44
+          - gitpython==3.1.50
           - pydantic==2.10.6
-          - pygithub==2.6.1
+          - pygithub==2.9.1
           - types-Pillow
           - types-requests
           - wg-utilities==5.17.4
-          - git+https://github.com/AppDaemon/appdaemon.git
+          - appdaemon==4.5.0
 
   - repo: https://github.com/pre-commit/pygrep-hooks
     rev: v1.10.0
