@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import operator
-from datetime import datetime, timedelta, tzinfo
+from datetime import datetime, timedelta
 from enum import StrEnum
 from json import dumps
 from typing import (
@@ -233,8 +233,8 @@ class _History[S: StateValue | float](BaseModel):
 
         hass_history = hass.get_history(
             entity_id=cls.ENTITY_ID,
-            start_time=lower_limit.astimezone(hass.local_tz).replace(tzinfo=None),
-            end_time=end_time.astimezone(hass.local_tz).replace(tzinfo=None),
+            start_time=lower_limit.astimezone(hass.AD.tz).replace(tzinfo=None),
+            end_time=end_time.astimezone(hass.AD.tz).replace(tzinfo=None),
         )
 
         if not hass_history or len(hass_history) != 1:
@@ -466,13 +466,9 @@ class AreaCleanedByRoom(TypedDict):
 class CosmoMonitor(Hass):  # type: ignore[misc]
     """Monitors the Cosmo vacuum's cleaning history."""
 
-    local_tz: tzinfo
-
     def initialize(self) -> None:
         """Initialize the app."""
         self.listen_state(self.log_cleaning_time, "sensor.cosmo_task_status")
-
-        self.local_tz = self.datetime(aware=True).astimezone().tzinfo
 
         # Call once when app loads (in case of a bugfix for a prior cleaning session)
         self.log_cleaning_time(
@@ -529,7 +525,7 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
         # Start 24 hours ago because there's no way a cleaning session will last that long
         task_history = TaskStatusHistory.from_state_history(
             self,
-            lower_limit=self.datetime(aware=True).astimezone(self.local_tz)
+            lower_limit=self.datetime(aware=True).astimezone(self.AD.tz)
             - timedelta(hours=24),
             reverse=True,
         )
