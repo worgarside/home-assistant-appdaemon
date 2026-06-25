@@ -39,7 +39,7 @@ jobs:
       - name: Install prek
         run: |
           uv tool install prek
-          echo "$(uv tool bin-dir)" >> $GITHUB_PATH
+          uv tool bin-dir >> "$GITHUB_PATH"
 
       - name: prek auto-update
         id: update

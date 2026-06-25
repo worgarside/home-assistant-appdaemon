@@ -70,7 +70,7 @@ jobs:
 
           git commit -m "style: Fixes from prek hooks" --no-verify
 
-          git push origin ${REF}
+          git push origin "$REF"
 
           UNCOMMITTED_FILES=$(git status -s | awk '{print $2}')
 
