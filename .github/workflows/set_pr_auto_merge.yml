@@ -1,7 +1,6 @@
 ---
 name: Set PR Auto Merge
 
-# yamllint disable-line rule:truthy
 on:
   pull_request:
     types:

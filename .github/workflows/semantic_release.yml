@@ -1,0 +1,66 @@
+---
+name: Semantic Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - apps/**
+
+  workflow_dispatch:
+    inputs:
+      publish-tag:
+        description: The tag to deploy. Will attempt a new release if omitted.
+        required: false
+      force-deployment:
+        description: >-
+          Adds the `--force` flag to the `semantic-release` command. Must be set
+          to one of "prerelease", "patch", "minor", or "major".
+        required: false
+        type: string
+
+env:
+  PYTHON_VERSION: 3.12
+
+jobs:
+  release:
+    name: Release
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    outputs:
+      released: ${{ steps.python-semantic-release.outputs.released }}
+      tag: ${{ steps.python-semantic-release.outputs.tag }}
+      version: ${{ steps.python-semantic-release.outputs.version }}
+    steps:
+      - name: Log Inputs
+        if: runner.debug == '1'
+        env:
+          INPUTS: ${{ toJson(inputs) }}
+        run: echo -e "\`\`\`json\n$INPUTS\n\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Clone Repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+          token: ${{ secrets.WORGARSIDE_DEV_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Python Semantic Release
+        id: python-semantic-release
+        uses: python-semantic-release/python-semantic-release@v10.5.3
+        with:
+          github_token: ${{ secrets.WORGARSIDE_DEV_TOKEN }}
+          git_committer_name: worgarside-dev
+          git_committer_email: worgarside.dev@gmail.com
+          config_file: pyproject.toml
+          verbosity: 2
+          force: ${{ inputs.force-deployment }}

@@ -10,7 +10,7 @@ from re import compile as compile_regex
 from re import sub
 from typing import Any, Literal, Self
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
+from appdaemon.plugins.hass.hassapi import Hass
 from wg_utilities.clients import SpotifyClient
 from wg_utilities.clients.spotify import Playlist, Track
 
@@ -45,7 +45,7 @@ class ActionablePlaylist(StrEnum):
         return member
 
 
-class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
+class SpotifyTrackProcessor(Hass):
     """App to add recently liked tracks to dynamic playlists."""
 
     playlists: dict[str, Playlist]
@@ -101,20 +101,22 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
 
     def add_track_to_playlist(
         self,
-        _: Literal["mobile_app_notification_action"],
-        data: dict[str, str],
-        __: dict[str, str],
+        event_type: str,
+        data: dict[str, Any],
+        **kwargs: Any,
     ) -> None:
         """Add a given track to a playlist, triggered from mobile notification.
 
         Args:
-            _ (str): the event name
-            data (dict[str, str]): the event data
-            __: any other kwargs
+            event_type: The event name.
+            data: The event data.
+            **kwargs: Any other callback kwargs.
 
         Raises:
             Exception: if the desired track can't be found in the recently liked
         """
+        del event_type, kwargs
+
         try:
             action_phrase, track_id = data.get("action", "0:0").split(":")
         except ValueError:
@@ -246,11 +248,11 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
 
     def process_now_playing(
         self,
-        entity: Literal["var.tasker_pixel_now_playing"],
-        attribute: Literal["state"],
-        old: str,
-        new: str,
-        **kwargs: dict[str, Any],
+        entity: str,
+        attribute: str,
+        old: Any,
+        new: Any,
+        **kwargs: Any,
     ) -> None:
         """Process an update from the Pixel Now Playing Tasker task.
 
@@ -306,11 +308,11 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
 
     def update_tempo_variable(
         self,
-        entity: Literal["sensor.spotify_will_garside_media_title"],
-        attribute: Literal["state"],
-        old: str,
-        new: str,
-        **kwargs: dict[str, Any],
+        entity: str,
+        attribute: str,
+        old: Any,
+        new: Any,
+        **kwargs: Any,
     ) -> None:
         """Update the tempo variable for a given user.
 
@@ -342,10 +344,15 @@ class SpotifyTrackProcessor(Hass):  # type: ignore[misc]
                 force_update=True,
             )
         else:
-            track_id = self.get_state(
+            media_content_id = self.get_state(
                 "media_player.spotify_will",
                 attribute="media_content_id",
-            ).replace("spotify:track:", "")
+            )
+            if not isinstance(media_content_id, str):
+                self.error("Unexpected media content ID: %r", media_content_id)
+                return
+
+            track_id = media_content_id.replace("spotify:track:", "")
 
             track = self.spotify.get_track_by_id(track_id)
 

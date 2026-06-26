@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import string
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from json import JSONDecodeError, dumps
@@ -9,10 +10,10 @@ from pathlib import Path
 from re import IGNORECASE, Pattern
 from re import compile as re_compile
 from time import sleep
-from typing import TYPE_CHECKING, Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final
 from urllib import parse
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
+from appdaemon.plugins.hass.hassapi import Hass
 from requests import HTTPError
 from wg_utilities.clients import MonzoClient, SpotifyClient, TrueLayerClient
 from wg_utilities.clients.oauth_client import OAuthCredentials
@@ -20,14 +21,14 @@ from wg_utilities.clients.truelayer import Bank, Card
 from wg_utilities.clients.truelayer import Transaction as TrueLayerTransaction
 
 if TYPE_CHECKING:
-    from appdaemon.entity import Entity  # type: ignore[import-untyped]
+    from appdaemon.entity import Entity
     from wg_utilities.clients.monzo import Pot
     from wg_utilities.clients.monzo import Transaction as MonzoTransaction
 
 CACHE_DIR = Path("/homeassistant/.wg-utilities/oauth_credentials")
 
 
-class AutoSaver(Hass):  # type: ignore[misc]
+class AutoSaver(Hass):
     """Automatically save money based on certain criteria."""
 
     AUTO_SAVE_VARIABLE_ID: Final[str] = "var.auto_save_amount"
@@ -158,7 +159,6 @@ class AutoSaver(Hass):  # type: ignore[misc]
             "state",
             "",
             "-",
-            {},
         )
 
     def initialize_amex(self) -> None:
@@ -301,10 +301,10 @@ class AutoSaver(Hass):  # type: ignore[misc]
     def calculate(
         self,
         entity: str,
-        attribute: Literal["state"],
-        old: str,
-        new: str,
-        kwargs: dict[str, Any],
+        attribute: str,
+        old: Any,
+        new: Any,
+        **kwargs: Any,
     ) -> None:
         """Calculate the current auto-save amount."""
         _ = entity, old, kwargs
@@ -363,10 +363,10 @@ class AutoSaver(Hass):  # type: ignore[misc]
     def consume_auth_token(
         self,
         entity: str,
-        attribute: Literal["state"],
-        old: str,
-        new: str,
-        **kwargs: dict[str, Any],
+        attribute: str,
+        old: Any,
+        new: Any,
+        **kwargs: Any,
     ) -> None:
         """Consume the auth token and get the access token."""
         _ = attribute, old, kwargs
@@ -452,11 +452,11 @@ class AutoSaver(Hass):  # type: ignore[misc]
 
     def save_money(
         self,
-        entity: Literal["input_boolean.ad_monzo_auto_save"],
-        attribute: Literal["state"],
-        old: str,
-        new: str,
-        kwargs: dict[str, Any],
+        entity: str,
+        attribute: str,
+        old: Any,
+        new: Any,
+        **kwargs: Any,
     ) -> None:
         """Save money to the savings pot."""
         _ = entity, attribute, kwargs
@@ -464,22 +464,33 @@ class AutoSaver(Hass):  # type: ignore[misc]
         if old == new or ({old, new} & {"unavailable", "unknown"}):
             return
 
-        save_amount_pence = int(float(self.get_state(self.AUTO_SAVE_VARIABLE_ID)) * 100)
+        auto_save_amount = self.get_state(self.AUTO_SAVE_VARIABLE_ID)
+        if not isinstance(auto_save_amount, str | int | float) or isinstance(
+            auto_save_amount,
+            bool,
+        ):
+            self.error("Unexpected auto-save amount state: %r", auto_save_amount)
+            return
+
+        save_amount_pence = int(float(auto_save_amount) * 100)
 
         self.log("Saving %s pence", save_amount_pence)
+
+        auto_save_last_changed = self.get_state(
+            self.AUTO_SAVE_VARIABLE_ID,
+            attribute="last_changed",
+        )
+        if not isinstance(auto_save_last_changed, str):
+            self.error(
+                "Unexpected auto-save last-changed state: %r",
+                auto_save_last_changed,
+            )
+            return
 
         self.monzo_client.deposit_into_pot(
             self.savings_pot,
             amount_pence=save_amount_pence,
-            dedupe_id="-".join(
-                (
-                    self.name,
-                    self.get_state(
-                        self.AUTO_SAVE_VARIABLE_ID,
-                        attribute="last_changed",
-                    ),
-                ),
-            ),
+            dedupe_id=f"{self.name}-{auto_save_last_changed}",
         )
 
         self.call_service(
@@ -488,12 +499,17 @@ class AutoSaver(Hass):  # type: ignore[misc]
             datetime=datetime.now(UTC).isoformat(),
         )
 
-        try:
-            new_total = float(self.get_state(self.CUM_TOTAL_VARIABLE_ID)) + (
-                save_amount_pence / 100
-            )
-        except (TypeError, ValueError):
+        cumulative_total = self.get_state(self.CUM_TOTAL_VARIABLE_ID)
+        if not isinstance(cumulative_total, str | int | float) or isinstance(
+            cumulative_total,
+            bool,
+        ):
             new_total = save_amount_pence / 100
+        else:
+            try:
+                new_total = float(cumulative_total) + (save_amount_pence / 100)
+            except ValueError:
+                new_total = save_amount_pence / 100
 
         self.call_service(
             "var/set",
@@ -510,7 +526,7 @@ class AutoSaver(Hass):  # type: ignore[misc]
             "client_id": client.client_id,
             "redirect_uri": "https://console.truelayer.com/redirect-page",
             "response_type": "code",
-            "state": "abcdefghijklmnopqrstuvwxyz",
+            "state": string.ascii_lowercase,
             "access_type": "offline",
             "prompt": "consent",
         }
@@ -527,11 +543,9 @@ class AutoSaver(Hass):  # type: ignore[misc]
             message = (
                 f"TrueLayer access token for {client.bank} (auto-saver) has expired!"
             )
-        elif isinstance(client, MonzoClient):
+        else:
             title = "Monzo (auto-saver) Access Token Expired"
             message = "Monzo access token has expired!"
-        else:
-            raise TypeError(f"Invalid client: {client!r}")
 
         self.call_service(
             "script/turn_on",

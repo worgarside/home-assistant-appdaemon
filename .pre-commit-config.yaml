@@ -14,7 +14,7 @@ repos:
     rev: v0.15.18
     hooks:
       - id: ruff-format
-      - id: ruff
+      - id: ruff-check
 
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12
@@ -61,21 +61,21 @@ repos:
           - parsable
           - --strict
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v2.1.0
+  - repo: https://github.com/DetachHead/basedpyright-prek-mirror
+    rev: 1.39.8
     hooks:
-      - id: mypy
-        args:
-          - --strict
-          - --show-error-codes
+      - id: basedpyright
+        name: basedpyright-apps
+        files: ^(apps/|pyproject\.toml$)
+        pass_filenames: false
         additional_dependencies:
+          - appdaemon==4.5.13
           - gitpython==3.1.50
+          - pillow==11.3.0
           - pydantic==2.10.6
           - pygithub==2.9.1
-          - types-Pillow
-          - types-requests
+          - requests==2.32.5
           - wg-utilities==5.17.4
-          - appdaemon==4.5.0
 
   - repo: https://github.com/pre-commit/pygrep-hooks
     rev: v1.10.0

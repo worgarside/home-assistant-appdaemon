@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import string
 from datetime import UTC, datetime
 from json import JSONDecodeError, dumps
 from pathlib import Path
 from time import sleep
-from typing import TYPE_CHECKING, Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final
 from urllib import parse
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
+from appdaemon.plugins.hass.hassapi import Hass
 from requests import HTTPError
 from wg_utilities.clients import MonzoClient
 from wg_utilities.clients.oauth_client import OAuthCredentials
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
     from wg_utilities.clients.monzo import Pot
 
 
-class CreditCardPotManager(Hass):  # type: ignore[misc]
+class CreditCardPotManager(Hass):
     """Keep my credit card pot topped up with nightly notifications."""
 
     ACTION_PHRASE: Final = "TOP_UP_CREDIT_CARD_POT"
@@ -50,10 +51,12 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
 
     def run_daily_process(self, _: dict[str, Any] | None = None) -> None:
         """Top up (or send a notification to) the credit card pot."""
-        amex_balance = float(self.get_state("var.truelayer_balance_amex"))
-        monzo_credit_cards_balance = float(
-            self.get_state("sensor.monzo_will_credit_cards_balance"),
+        amex_balance = self._get_float_state("var.truelayer_balance_amex")
+        monzo_credit_cards_balance = self._get_float_state(
+            "sensor.monzo_will_credit_cards_balance",
         )
+        if amex_balance is None or monzo_credit_cards_balance is None:
+            return
 
         if (deficit := round(amex_balance - monzo_credit_cards_balance, 2)) <= 0.0:
             if abs(deficit) < 50:  # noqa: PLR2004
@@ -74,17 +77,21 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
                 )
             return
 
-        monzo_current_account_balance = float(
-            self.get_state("sensor.monzo_will_current_account_balance"),
+        monzo_current_account_balance = self._get_float_state(
+            "sensor.monzo_will_current_account_balance",
         )
-
-        min_remainder = float(
-            self.get_state("input_number.credit_card_pot_top_up_minimum_remainder"),
+        min_remainder = self._get_float_state(
+            "input_number.credit_card_pot_top_up_minimum_remainder",
         )
-
-        max_auto_top_up = float(
-            self.get_state("input_number.credit_card_pot_top_up_maximum_auto_top_up"),
+        max_auto_top_up = self._get_float_state(
+            "input_number.credit_card_pot_top_up_maximum_auto_top_up",
         )
+        if (
+            monzo_current_account_balance is None
+            or min_remainder is None
+            or max_auto_top_up is None
+        ):
+            return
 
         available = max(monzo_current_account_balance - min_remainder, 0)
         top_up_amount = min(available, deficit)
@@ -103,7 +110,6 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
             self.top_up_credit_card_pot(
                 "mobile_app_notification_action",
                 notification_action,
-                {},
             )
 
             message = (
@@ -157,13 +163,27 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
                 top_up_amount,
             )
 
+    def _get_float_state(self, entity_id: str) -> float | None:
+        state = self.get_state(entity_id)
+        if not isinstance(state, str | int | float) or isinstance(state, bool):
+            self.error("Unexpected numeric state for %s: %r", entity_id, state)
+            return None
+
+        try:
+            return float(state)
+        except ValueError:
+            self.error("Unable to parse numeric state for %s: %r", entity_id, state)
+            return None
+
     def top_up_credit_card_pot(
         self,
-        _: Literal["mobile_app_notification_action"],
+        event_type: str,
         data: dict[str, Any],
-        __: dict[str, str],
+        **kwargs: Any,
     ) -> None:
         """Top up the credit card pot when a notification action is received."""
+        del event_type, kwargs
+
         try:
             action_phrase, top_up_amount_str = data.get("action", "0:0").split(":")
         except ValueError:
@@ -226,7 +246,7 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
             # Reflects the code back at the user for easy copypaste
             "redirect_uri": self.redirect_uri,
             "response_type": "code",
-            "state": "abcdefghijklmnopqrstuvwxyz",
+            "state": string.ascii_lowercase,
             "access_type": "offline",
             "prompt": "consent",
         }
@@ -263,10 +283,10 @@ class CreditCardPotManager(Hass):  # type: ignore[misc]
     def consume_auth_token(
         self,
         entity: str,
-        attribute: Literal["state"],
-        old: str,
-        new: str,
-        **kwargs: dict[str, Any],
+        attribute: str,
+        old: Any,
+        new: Any,
+        **kwargs: Any,
     ) -> None:
         """Consume the auth token and get the access token."""
         _ = entity, attribute, old, kwargs

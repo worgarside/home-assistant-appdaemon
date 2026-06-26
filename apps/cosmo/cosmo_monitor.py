@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import operator
-from datetime import datetime, timedelta, tzinfo
+from datetime import datetime, timedelta
 from enum import StrEnum
 from json import dumps
 from typing import (
@@ -12,13 +12,12 @@ from typing import (
     Any,
     ClassVar,
     Final,
-    Literal,
     Self,
     TypedDict,
     TypeVar,
 )
 
-from appdaemon.plugins.hass.hassapi import Hass  # type: ignore[import-untyped]
+from appdaemon.plugins.hass.hassapi import Hass
 from pydantic import (
     AwareDatetime,
     BaseModel,
@@ -75,7 +74,7 @@ class TaskStatus(StateValue):
 
     @property
     def is_room_cleaning(self) -> bool:
-        """Return whether the task status is a room cleaning status."""
+        """Whether the task status is a room cleaning status."""
         return self in {
             TaskStatus.CLEANING,
             TaskStatus.ROOM_CLEANING,
@@ -84,7 +83,7 @@ class TaskStatus(StateValue):
 
     @property
     def is_paused(self) -> bool:
-        """Return whether the task status is a paused status."""
+        """Whether the task status is a paused status."""
         return self in {
             TaskStatus.CLEANING_PAUSED,
             TaskStatus.DOCKING_PAUSED,
@@ -108,12 +107,12 @@ class Room(StateValue):
 
     @property
     def input_datetime_name(self) -> str:
-        """Return the input_datetime name for the room."""
+        """The input_datetime name for the room."""
         return f"input_datetime.cosmo_last_{self.name.lower()}_clean"
 
     @property
     def minimum_clean_area(self) -> float:
-        """Return the minimum area that should be cleaned before the room can be considered complete."""
+        """The minimum area that should be cleaned before the room can be considered complete."""
         return {
             Room.BATHROOM: 3,
             Room.BEDROOM: 6,
@@ -170,10 +169,10 @@ class StateTypeInfo(BaseStateTypeInfo[S]):
 
         return data
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def duration(self) -> timedelta:
-        """Return the duration of the state."""
+        """The duration of the state."""
         return self.end_time - self.start_time
 
     def __str__(self) -> str:
@@ -191,22 +190,22 @@ class _History[S: StateValue | float](BaseModel):
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def duration(self) -> timedelta:
-        """Return the total duration of the history."""
+        """The total duration of the history."""
         return self.upper_limit - self.lower_limit
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def lower_limit(self) -> AwareDatetime:
-        """Return the lower limit of the history."""
+        """The lower limit of the history."""
         return self.states[0].start_time
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def upper_limit(self) -> AwareDatetime:
-        """Return the upper limit of the history."""
+        """The upper limit of the history."""
         return self.states[-1].end_time
 
     @field_validator("states", "state_history", mode="before")
@@ -233,8 +232,8 @@ class _History[S: StateValue | float](BaseModel):
 
         hass_history = hass.get_history(
             entity_id=cls.ENTITY_ID,
-            start_time=lower_limit.astimezone(hass.local_tz).replace(tzinfo=None),
-            end_time=end_time.astimezone(hass.local_tz).replace(tzinfo=None),
+            start_time=lower_limit.astimezone(hass.AD.tz).replace(tzinfo=None),
+            end_time=end_time.astimezone(hass.AD.tz).replace(tzinfo=None),
         )
 
         if not hass_history or len(hass_history) != 1:
@@ -289,7 +288,7 @@ class _History[S: StateValue | float](BaseModel):
         Returns:
             History of the entity.
         """
-        lower_limit, end_time, _state_history = cls._get_hass_state_history(
+        lower_limit, end_time, state_history = cls._get_hass_state_history(
             hass=hass,
             lower_limit=lower_limit,
             upper_limit=upper_limit,
@@ -298,7 +297,7 @@ class _History[S: StateValue | float](BaseModel):
         # This is a quick way to ensure that the state history is all parsed into the correct Pydantic
         # model without having to figure out the value of `S` at runtime
         parsed_state_history = cls.model_validate(
-            {"states": [], "state_history": _state_history},
+            {"states": [], "state_history": state_history},
         ).state_history
 
         merged_states: list[StateTypeInfo[S]] = []
@@ -463,16 +462,12 @@ class AreaCleanedByRoom(TypedDict):
     end_time: datetime
 
 
-class CosmoMonitor(Hass):  # type: ignore[misc]
+class CosmoMonitor(Hass):
     """Monitors the Cosmo vacuum's cleaning history."""
-
-    local_tz: tzinfo
 
     def initialize(self) -> None:
         """Initialize the app."""
         self.listen_state(self.log_cleaning_time, "sensor.cosmo_task_status")
-
-        self.local_tz = self.datetime(aware=True).astimezone().tzinfo
 
         # Call once when app loads (in case of a bugfix for a prior cleaning session)
         self.log_cleaning_time(
@@ -480,7 +475,6 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
             attribute="state",
             old=TaskStatus.ROOM_CLEANING,
             new=TaskStatus.COMPLETED,
-            kwargs={},
         )
 
     def _get_area_cleaned_by_room(
@@ -529,7 +523,7 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
         # Start 24 hours ago because there's no way a cleaning session will last that long
         task_history = TaskStatusHistory.from_state_history(
             self,
-            lower_limit=self.datetime(aware=True).astimezone(self.local_tz)
+            lower_limit=self.datetime(aware=True).astimezone(self.AD.tz)
             - timedelta(hours=24),
             reverse=True,
         )
@@ -537,6 +531,7 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
         # Work backwards through the task status history: take the first cleaning period and
         # save its end time; keep working backwards and saving the start time until a
         # non-cleaning/non-paused task is found
+        clean_start_time: datetime | None = None
         clean_end_time = None
         for task_status_state in task_history:
             if task_status_state.state.is_room_cleaning:
@@ -546,6 +541,9 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
                 # Neither cleaning nor paused, and a cleaning period has been found
                 break
         else:
+            raise ValueError("No cleaning task status found")
+
+        if clean_start_time is None:
             raise ValueError("No cleaning task status found")
 
         self.log("Initial range found: %s - %s", clean_start_time, clean_end_time)
@@ -574,11 +572,11 @@ class CosmoMonitor(Hass):  # type: ignore[misc]
 
     def log_cleaning_time(
         self,
-        entity: Literal["sensor.cosmo_task_status"],
-        attribute: Literal["state"],
-        old: TaskStatus,
-        new: TaskStatus,
-        kwargs: dict[str, Any],
+        entity: str,
+        attribute: str,
+        old: Any,
+        new: Any,
+        **kwargs: Any,
     ) -> None:
         """Deduces and records if a one or more rooms have been properly cleaned."""
         del entity, attribute, kwargs
