@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from functools import lru_cache
 from http import HTTPStatus
@@ -18,6 +19,13 @@ if TYPE_CHECKING:
     from github.Branch import Branch
     from github.PullRequest import PullRequest
     from github.Repository import Repository
+
+
+def stable_int_id(value: str) -> int:
+    """Return a deterministic int ID for a string notification key."""
+    digest = hashlib.sha256(value.encode()).digest()[:8]
+    return int.from_bytes(digest, "big") & 0x7FFFFFFFFFFFFFFF
+
 
 REPO_NAME: Final[str] = "worgarside/home-assistant"
 
@@ -148,7 +156,7 @@ class LovelaceFileCommitter(Hass):
 
         self.persistent_notification(
             title="Lovelace UI Dashboard Files Updated",
-            id=hash(f"lovelace_ui_dashboard_files_updated_{pr_prefix}"),
+            id=stable_int_id(f"lovelace_ui_dashboard_files_{pr_prefix}ated"),
             message=f"A **[pull request]({pr.html_url})** has been {pr_prefix.lower()}ated for the"
             " UI Lovelace dashboards.",
         )
