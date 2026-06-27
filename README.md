@@ -55,11 +55,11 @@ state and stores the latest TinyTuya payload in attributes: `raw_status`, `dps`,
 DP IDs are treated as strings internally because TinyTuya status payloads commonly
 use string keys under `dps`.
 
-### Discovery Workflow
+### Diagnostics
 
-For careful manual DP testing, use `_local_sandbox/tuya_test.py`. The AppDaemon app
-itself only exposes the AC through MQTT climate discovery and the optional diagnostic
-raw sensor.
+The AppDaemon app exposes the AC through MQTT climate discovery and the optional
+diagnostic raw sensor. Use the raw sensor attributes and AppDaemon logs to inspect
+the latest TinyTuya payload when troubleshooting.
 
 ### Availability and State
 

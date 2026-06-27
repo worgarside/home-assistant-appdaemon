@@ -12,6 +12,8 @@ import tinytuya  # pyright: ignore[reportMissingTypeStubs]
 from paho.mqtt.enums import CallbackAPIVersion
 
 COMMAND_REFRESH_DELAY: Final[float] = 2.0
+MIN_TARGET_TEMP: Final[int] = 16
+MAX_TARGET_TEMP: Final[int] = 32
 TUYA_MODE_TO_HVAC_MODE: Final[dict[str, str]] = {
     "Cool": "cool",
     "Dry": "dry",
@@ -28,6 +30,7 @@ TUYA_FAN_TO_HA_FAN: Final[dict[str, str]] = {
 HA_FAN_TO_TUYA_FAN: Final[dict[str, str]] = {
     value: key for key, value in TUYA_FAN_TO_HA_FAN.items()
 }
+PRESET_NONE: Final[str] = "none"
 PRESET_SLEEP: Final[str] = "sleep"
 
 
@@ -175,6 +178,12 @@ class ProBreezeAC(hass.Hass):
 
         self.mqtt_client.on_connect = self._handle_mqtt_connect
         self.mqtt_client.on_message = self._handle_mqtt_message
+        self.mqtt_client.will_set(
+            self._mqtt_topic("availability"),
+            "offline",
+            qos=self.mqtt_qos,
+            retain=True,
+        )
 
         try:
             self.mqtt_client.connect(self.mqtt_host, self.mqtt_port, keepalive=60)
@@ -230,6 +239,7 @@ class ProBreezeAC(hass.Hass):
         del client, userdata
 
         payload = message.payload.decode("utf-8")
+        # Keep all TinyTuya socket access on AppDaemon's app thread.
         self.run_in(
             self.handle_mqtt_command,
             0,
@@ -274,8 +284,8 @@ class ProBreezeAC(hass.Hass):
             "temperature_state_topic": self._mqtt_topic("temperature/state"),
             "current_temperature_topic": self._mqtt_topic("current_temperature/state"),
             "temperature_unit": "C",
-            "min_temp": 16,
-            "max_temp": 32,
+            "min_temp": MIN_TARGET_TEMP,
+            "max_temp": MAX_TARGET_TEMP,
             "temp_step": 1,
             "precision": 1.0,
             "fan_mode_command_topic": self._mqtt_command_topics["fan_mode"],
@@ -310,8 +320,6 @@ class ProBreezeAC(hass.Hass):
         if self.mqtt_client is None:
             return
 
-        self._publish_mqtt_availability(is_available=True)
-
         hvac_mode = self._hvac_mode_from_dps(dps)
         if hvac_mode is not None:
             self._publish_mqtt(self._mqtt_topic("mode/state"), hvac_mode)
@@ -335,7 +343,9 @@ class ProBreezeAC(hass.Hass):
             )
 
         if self.dp_sleep in dps:
-            preset = PRESET_SLEEP if self._state_to_bool(dps[self.dp_sleep]) else ""
+            preset = (
+                PRESET_SLEEP if self._state_to_bool(dps[self.dp_sleep]) else PRESET_NONE
+            )
             self._publish_mqtt(self._mqtt_topic("preset_mode/state"), preset)
 
     def _publish_numeric_state(
@@ -394,6 +404,10 @@ class ProBreezeAC(hass.Hass):
             self.error("Unsupported MQTT temperature command: %r", payload)
             return
 
+        if not MIN_TARGET_TEMP <= float(value) <= MAX_TARGET_TEMP:
+            self.error("Out-of-range MQTT temperature command: %r", payload)
+            return
+
         self._command_dp(self.dp_target_temp, value, "MQTT target temperature")
 
     def _handle_mqtt_fan_mode_command(self, payload: str) -> None:
@@ -432,7 +446,7 @@ class ProBreezeAC(hass.Hass):
             self._command_dp(self.dp_sleep, value=True, label="MQTT sleep preset")
             return
 
-        if payload == "":
+        if payload in {PRESET_NONE, "None", ""}:
             self._command_dp(self.dp_sleep, value=False, label="MQTT preset clear")
             return
 
@@ -485,6 +499,7 @@ class ProBreezeAC(hass.Hass):
             self.error("TinyTuya returned unexpected status payload: %r", status)
             self._write_raw_sensor("error", {"raw": status}, error="unexpected payload")
             self._set_availability(is_available=False)
+            self._reset_device()
             return None
 
         if "dps" not in status:
