@@ -20,6 +20,37 @@ version_file_committer:
   github_token: !secret appdaemon_github_token
   github_email: !secret google_maps_location_tracker_email
 
+# Pro Breeze AC
+
+pro_breeze_ac:
+  module: pro_breeze_ac
+  class: ProBreezeAC
+  device_id: !secret pro_breeze_ac_device_id
+  local_key: !secret pro_breeze_ac_local_key
+  ip: !secret pro_breeze_ac_ip
+  version: 3.5
+  poll_interval: 30
+
+  dp_power: '1'
+  dp_target_temp: '2'
+  dp_current_temp: '3'
+  dp_mode: '4'
+  dp_fan: '5'
+  dp_swing: '15'
+  dp_sleep: '101'
+
+  mqtt_host: !secret appdaemon_mqtt_host
+  mqtt_port: 1883
+  mqtt_username: !secret appdaemon_mqtt_username
+  mqtt_password: !secret appdaemon_mqtt_password
+  mqtt_discovery_prefix: homeassistant
+  mqtt_object_id: pro_breeze_ac
+  mqtt_unique_id: pro_breeze_ac
+  mqtt_name: Pro Breeze AC
+  mqtt_base_topic: appdaemon/pro_breeze_ac
+
+  raw_sensor: sensor.pro_breeze_ac_raw_state
+
 # Robot Vacuum
 
 # cosmo_monitor:

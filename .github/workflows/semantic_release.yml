@@ -10,9 +10,6 @@ on:
 
   workflow_dispatch:
     inputs:
-      publish-tag:
-        description: The tag to deploy. Will attempt a new release if omitted.
-        required: false
       force-deployment:
         description: >-
           Adds the `--force` flag to the `semantic-release` command. Must be set
