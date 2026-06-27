@@ -28,7 +28,6 @@ TUYA_FAN_TO_HA_FAN: Final[dict[str, str]] = {
 HA_FAN_TO_TUYA_FAN: Final[dict[str, str]] = {
     value: key for key, value in TUYA_FAN_TO_HA_FAN.items()
 }
-PRESET_NONE: Final[str] = "none"
 PRESET_SLEEP: Final[str] = "sleep"
 
 
@@ -287,7 +286,7 @@ class ProBreezeAC(hass.Hass):
             "swing_modes": ["on", "off"],
             "preset_mode_command_topic": self._mqtt_command_topics["preset_mode"],
             "preset_mode_state_topic": self._mqtt_topic("preset_mode/state"),
-            "preset_modes": [PRESET_NONE, PRESET_SLEEP],
+            "preset_modes": [PRESET_SLEEP],
             "device": {
                 "identifiers": [self.mqtt_unique_id],
                 "manufacturer": "Pro Breeze",
@@ -336,10 +335,8 @@ class ProBreezeAC(hass.Hass):
             )
 
         if self.dp_sleep in dps:
-            self._publish_mqtt(
-                self._mqtt_topic("preset_mode/state"),
-                PRESET_SLEEP if self._state_to_bool(dps[self.dp_sleep]) else PRESET_NONE,
-            )
+            preset = PRESET_SLEEP if self._state_to_bool(dps[self.dp_sleep]) else ""
+            self._publish_mqtt(self._mqtt_topic("preset_mode/state"), preset)
 
     def _publish_numeric_state(
         self,
@@ -435,7 +432,7 @@ class ProBreezeAC(hass.Hass):
             self._command_dp(self.dp_sleep, value=True, label="MQTT sleep preset")
             return
 
-        if payload == PRESET_NONE:
+        if payload == "":
             self._command_dp(self.dp_sleep, value=False, label="MQTT preset clear")
             return
 
