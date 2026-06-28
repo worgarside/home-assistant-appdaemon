@@ -62,8 +62,9 @@ class ProBreezeAC(hass.Hass):
         self.ip = self.args["ip"]
         self.version = float(self.args.get("version", 3.5))
         self.poll_interval = int(self.args.get("poll_interval", 30))
-        self.availability_failure_threshold = int(
-            self.args.get("availability_failure_threshold", 3),
+        self.availability_failure_threshold = max(
+            1,
+            int(self.args.get("availability_failure_threshold", 3)),
         )
 
         self.raw_sensor = self.args.get("raw_sensor")
@@ -585,10 +586,7 @@ class ProBreezeAC(hass.Hass):
             self._publish_mqtt_availability(is_available=True)
             return
 
-        if force:
-            self._consecutive_failures = self.availability_failure_threshold
-        else:
-            self._consecutive_failures += 1
+        self._consecutive_failures += 1
 
         if self._consecutive_failures < self.availability_failure_threshold:
             self.log(
@@ -598,7 +596,7 @@ class ProBreezeAC(hass.Hass):
             )
             return
 
-        if not self._mqtt_reported_available and not force:
+        if not self._mqtt_reported_available:
             return
 
         self._mqtt_reported_available = False
