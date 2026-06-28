@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v0.22.1 (2026-06-28)
+
+### Bug Fixes
+
+- Improve availability management
+  ([#258](https://github.com/worgarside/home-assistant-appdaemon/pull/258),
+  [`1a7a8c5`](https://github.com/worgarside/home-assistant-appdaemon/commit/1a7a8c509c9e8b9ff7716c0d169cb2a58d1c90e5))
+
+
 ## v0.22.0 (2026-06-27)
 
 ### Features
