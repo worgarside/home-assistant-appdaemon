@@ -54,12 +54,17 @@ class ProBreezeAC(hass.Hass):
         self.device = None
         self.mqtt_client = None
         self._last_raw_status_json: str | None = None
+        self._consecutive_failures = 0
+        self._mqtt_reported_available = False
 
         self.device_id = self.args["device_id"]
         self.local_key = self.args["local_key"]
         self.ip = self.args["ip"]
         self.version = float(self.args.get("version", 3.5))
         self.poll_interval = int(self.args.get("poll_interval", 30))
+        self.availability_failure_threshold = int(
+            self.args.get("availability_failure_threshold", 3),
+        )
 
         self.raw_sensor = self.args.get("raw_sensor")
 
@@ -76,8 +81,10 @@ class ProBreezeAC(hass.Hass):
         self.run_every(self.poll_device, "now", self.poll_interval)
 
         self.log(
-            "Initialized Pro Breeze AC polling every %s seconds; configured DPS: %s",
+            "Initialized Pro Breeze AC polling every %s seconds "
+            "(availability offline after %s consecutive failures); configured DPS: %s",
             self.poll_interval,
+            self.availability_failure_threshold,
             self._configured_dps_summary(),
         )
 
@@ -226,7 +233,7 @@ class ProBreezeAC(hass.Hass):
 
         self.log("MQTT connected for %s", self.mqtt_object_id)
         self._publish_mqtt_discovery()
-        self._publish_mqtt_availability(is_available=True)
+        self._set_availability(is_available=True, force=True)
         for topic in self._mqtt_command_topics.values():
             client.subscribe(topic, qos=self.mqtt_qos)
 
@@ -568,8 +575,34 @@ class ProBreezeAC(hass.Hass):
 
         self.set_state(self.raw_sensor, state=state, attributes=attributes)
 
-    def _set_availability(self, *, is_available: bool) -> None:
-        self._publish_mqtt_availability(is_available=is_available)
+    def _set_availability(self, *, is_available: bool, force: bool = False) -> None:
+        if is_available:
+            self._consecutive_failures = 0
+            if self._mqtt_reported_available and not force:
+                return
+
+            self._mqtt_reported_available = True
+            self._publish_mqtt_availability(is_available=True)
+            return
+
+        if force:
+            self._consecutive_failures = self.availability_failure_threshold
+        else:
+            self._consecutive_failures += 1
+
+        if self._consecutive_failures < self.availability_failure_threshold:
+            self.log(
+                "Transient TinyTuya failure (%s/%s); keeping climate entity available",
+                self._consecutive_failures,
+                self.availability_failure_threshold,
+            )
+            return
+
+        if not self._mqtt_reported_available and not force:
+            return
+
+        self._mqtt_reported_available = False
+        self._publish_mqtt_availability(is_available=False)
 
     def _command_dp(self, dp: str, value: Any, label: str) -> None:
         try:
