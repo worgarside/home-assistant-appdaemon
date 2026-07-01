@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Clone Repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           token: ${{ secrets.WORGARSIDE_DEV_TOKEN }}
