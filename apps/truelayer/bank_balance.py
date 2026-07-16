@@ -44,6 +44,7 @@ class BankBalanceGetter(Hass):
         )
         self.redirect_uri = "https://console.truelayer.com/redirect-page"
         self.notification_id = f"truelayer_access_token_{self.bank.name.lower()}_expired"
+        self.reauth_var = self.args["reauth_var"]
 
         self.client = TrueLayerClient(
             client_id=self.args["client_id"],
@@ -187,6 +188,7 @@ class BankBalanceGetter(Hass):
         auth_link = self.client.auth_link_base + "?" + parse.urlencode(auth_link_params)
 
         self.log(auth_link)
+        self.set_reauth_status(needs_reauth=True, auth_link=auth_link)
 
         self.call_service(
             "script/turn_on",
@@ -208,6 +210,16 @@ class BankBalanceGetter(Hass):
                     ],
                 ),
             },
+        )
+
+    def set_reauth_status(self, *, needs_reauth: bool, auth_link: str = "") -> None:
+        """Publish reauth status for the dashboard card."""
+        self.call_service(
+            "var/set",
+            entity_id=self.reauth_var,
+            value="on" if needs_reauth else "off",
+            force_update=True,
+            attributes={"auth_link": auth_link},
         )
 
     def error(self, msg: str, *args: Any, **kwargs: Any) -> None:
@@ -286,7 +298,8 @@ class BankBalanceGetter(Hass):
         self.clear_notifications()
 
     def clear_notifications(self) -> None:
-        """Clear the notification."""
+        """Clear the notification and hide the dashboard reauth card."""
+        self.set_reauth_status(needs_reauth=False)
         self.call_service(
             "script/turn_on",
             entity_id="script.notify_will",
