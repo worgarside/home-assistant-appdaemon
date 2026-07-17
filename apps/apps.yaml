@@ -75,6 +75,7 @@ monzo_auto_saver:
   spotify_client_secret: !secret spotify_monzo_auto_save_client_secret
   truelayer_client_id: !secret truelayer_client_id
   truelayer_client_secret: !secret truelayer_client_secret
+  truelayer_reauth_var: var.truelayer_reauth_amex_auto_saver
 
 monzo_credit_card_pot_manager:
   module: credit_card_pot_manager
@@ -98,6 +99,7 @@ amex_balance_getter:
   bank_ref: AMEX
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
+  reauth_var: var.truelayer_reauth_amex
   card_ids:
     no_ref:
 
@@ -107,6 +109,7 @@ hsbc_balance_getter:
   bank_ref: HSBC
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
+  reauth_var: var.truelayer_reauth_hsbc
   account_ids:
     current_account: !secret truelayer_hsbc_current_account_id
 
@@ -127,6 +130,7 @@ santander_balance_getter:
   bank_ref: SANTANDER
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
+  reauth_var: var.truelayer_reauth_santander
   account_ids:
     current_account: !secret truelayer_santander_current_account_id
 
@@ -136,6 +140,7 @@ starling_balance_getter:
   bank_ref: STARLING
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
+  reauth_var: var.truelayer_reauth_starling
   account_ids:
     current_account: !secret truelayer_starling_current_account_id
 
@@ -145,5 +150,6 @@ starling_joint_balance_getter:
   bank_ref: STARLING_JOINT
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
+  reauth_var: var.truelayer_reauth_starling_joint
   account_ids:
     account: !secret truelayer_starling_joint_account_id
