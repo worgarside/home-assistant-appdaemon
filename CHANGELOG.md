@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v0.23.0 (2026-07-17)
+
+### Features
+
+- Support automatic reauth for TrueLayer
+  ([#261](https://github.com/worgarside/home-assistant-appdaemon/pull/261),
+  [`6ba6eb1`](https://github.com/worgarside/home-assistant-appdaemon/commit/6ba6eb1433302da93ea0097c16d133f8db995e9b))
+
+
 ## v0.22.1 (2026-06-28)
 
 ### Bug Fixes
