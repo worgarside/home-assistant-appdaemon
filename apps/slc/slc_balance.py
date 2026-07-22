@@ -15,6 +15,9 @@ from slc_client import LoanSummary, SlcError, fetch_loan_summary
 
 DEFAULT_POLL_INTERVAL: Final[int] = 6 * 60 * 60
 DEFAULT_FAILURE_THRESHOLD: Final[int] = 2
+DEFAULT_NOTIFY_SCRIPT: Final[str] = "script.notify_will"
+DEFAULT_NOTIFICATION_ID: Final[str] = "slc_balance_poll_failed"
+MAX_NOTIFICATION_ERROR_CHARS: Final[int] = 240
 
 
 @dataclass(frozen=True)
@@ -88,6 +91,8 @@ class SlcBalance(hass.Hass):
     """Publish Student Loans Company overview values as MQTT sensors."""
 
     mqtt_client: Any | None
+    notification_id: str
+    notify_script: str
     raw_sensor: str | None
     username: str
     password: str
@@ -98,6 +103,8 @@ class SlcBalance(hass.Hass):
         self.mqtt_client = None
         self._consecutive_failures = 0
         self._mqtt_reported_available = False
+        self._failure_notified = False
+        self._last_failure_message: str | None = None
 
         for required in ("username", "password", "secret_answer"):
             if required not in self.args:
@@ -118,6 +125,10 @@ class SlcBalance(hass.Hass):
             ),
         )
         self.raw_sensor = self.args.get("raw_sensor")
+        self.notify_script = str(self.args.get("notify_script", DEFAULT_NOTIFY_SCRIPT))
+        self.notification_id = str(
+            self.args.get("notification_id", DEFAULT_NOTIFICATION_ID),
+        )
 
         self._configure_mqtt()
         self.run_every(self.poll_slc, "now", self.poll_interval)
@@ -150,12 +161,13 @@ class SlcBalance(hass.Hass):
         except (SlcError, httpx2.HTTPError) as err:
             self.error("SLC poll failed: %s", err)
             self._write_raw_sensor("error", error=str(err))
-            self._set_availability(is_available=False)
+            self._set_availability(is_available=False, error=str(err))
             return
 
         self._publish_sensor_states(summary)
         self._write_raw_sensor("ok", summary=summary)
         self._set_availability(is_available=True)
+        self._clear_failure_notification()
         self.log(
             "Published SLC overview (balance present=%s, year=%s)",
             summary.balance is not None,
@@ -364,9 +376,16 @@ class SlcBalance(hass.Hass):
 
         self.set_state(self.raw_sensor, state=state, attributes=attributes)
 
-    def _set_availability(self, *, is_available: bool, force: bool = False) -> None:
+    def _set_availability(
+        self,
+        *,
+        is_available: bool,
+        force: bool = False,
+        error: str | None = None,
+    ) -> None:
         if is_available:
             self._consecutive_failures = 0
+            self._last_failure_message = None
             if self._mqtt_reported_available and not force:
                 return
 
@@ -375,6 +394,8 @@ class SlcBalance(hass.Hass):
             return
 
         self._consecutive_failures += 1
+        if error:
+            self._last_failure_message = error
 
         if self._consecutive_failures < self.availability_failure_threshold:
             self.log(
@@ -384,8 +405,52 @@ class SlcBalance(hass.Hass):
             )
             return
 
-        if not self._mqtt_reported_available:
+        if self._mqtt_reported_available:
+            self._mqtt_reported_available = False
+            self._publish_mqtt_availability(is_available=False)
+
+        self._notify_failure()
+
+    def _notify_failure(self) -> None:
+        if self._failure_notified:
             return
 
-        self._mqtt_reported_available = False
-        self._publish_mqtt_availability(is_available=False)
+        message = self._last_failure_message or (
+            "Student loan balance could not be retrieved."
+        )
+        # Keep notification copy short and free of credentials / tokens.
+        if len(message) > MAX_NOTIFICATION_ERROR_CHARS:
+            keep = MAX_NOTIFICATION_ERROR_CHARS - 3
+            message = f"{message[:keep]}..."
+
+        self.call_service(
+            "script/turn_on",
+            entity_id=self.notify_script,
+            variables={
+                "clear_notification": True,
+                "title": "Student Loan Balance Update Failed",
+                "message": (
+                    "Could not refresh SLC sensors. "
+                    f"The portal login/page layout may have changed. ({message})"
+                ),
+                "notification_id": self.notification_id,
+                "mobile_notification_icon": "mdi:school-outline",
+            },
+        )
+        self._failure_notified = True
+        self.log("Sent SLC failure notification (%s)", self.notification_id)
+
+    def _clear_failure_notification(self) -> None:
+        if not self._failure_notified:
+            return
+
+        self.call_service(
+            "script/turn_on",
+            entity_id=self.notify_script,
+            variables={
+                "clear_notification": True,
+                "notification_id": self.notification_id,
+            },
+        )
+        self._failure_notified = False
+        self.log("Cleared SLC failure notification (%s)", self.notification_id)
