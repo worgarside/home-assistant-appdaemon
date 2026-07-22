@@ -151,6 +151,10 @@ class SlcBalance(hass.Hass):
         )
 
         self._configure_mqtt()
+        # ``run_every(..., "now", interval)`` can miss the first fire when
+        # initialize finishes after the scheduled "now", which with a 6-hour
+        # interval means waiting until the next cycle. Kick once immediately.
+        self.run_in(self.poll_slc, 0)
         self.run_every(self.poll_slc, "now", self.poll_interval)
         self.log(
             "Initialized SLC balance polling every %s seconds "
