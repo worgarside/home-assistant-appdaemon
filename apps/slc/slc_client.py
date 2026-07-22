@@ -184,11 +184,11 @@ def _parse_money(text: str | None) -> float | None:
     """
     if not text:
         return None
-    match = re.search(r"-?\s*£?\s*([\d,]+(?:\.\d+)?)", text)
+    match = re.search(r"(-?)\s*£?\s*([\d,]+(?:\.\d+)?)", text)
     if not match:
         return None
     try:
-        return float(match.group(1).replace(",", ""))
+        return float(f"{match.group(1)}{match.group(2)}".replace(",", ""))
     except ValueError:
         return None
 
