@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.24.0 (2026-07-22)
+
+### Features
+
+- Add SLC MQTT sensors ([#264](https://github.com/worgarside/home-assistant-appdaemon/pull/264),
+  [`9c2dffa`](https://github.com/worgarside/home-assistant-appdaemon/commit/9c2dffa17d4cf10a830645077c612e9221177740))
+
+
 ## v0.23.0 (2026-07-17)
 
 ### Features
