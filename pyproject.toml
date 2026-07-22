@@ -12,6 +12,7 @@ dependencies = [
   "pillow>=11.3.0,<12",
   "tinytuya>=1.18.1",
   "paho-mqtt>=2.1.0",
+  "httpx2>=2.7.0,<3",
 ]
 
 [dependency-groups]

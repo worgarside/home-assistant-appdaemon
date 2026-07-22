@@ -1,5 +1,46 @@
 # Home Assistant: AppDaemon
 
+## Student Loan (SLC)
+
+`apps/slc/slc_balance.py` polls the UK Student Loans Company account overview and
+publishes six Home Assistant MQTT sensors under one `Student Loan` device.
+
+### AppDaemon Runtime Dependencies
+
+Install `httpx2` and `paho-mqtt` into the same Python environment that runs
+AppDaemon. For the Home Assistant AppDaemon runtime, add them to the runtime package
+list, for example:
+
+```yaml
+python_packages:
+  - httpx2
+  - paho-mqtt
+```
+
+### Secrets
+
+```yaml
+slc_username: <email or customer reference number>
+slc_password: <password>
+slc_secret_answer: <secret answer>
+appdaemon_mqtt_host: <mqtt broker host>
+appdaemon_mqtt_username: <mqtt username>
+appdaemon_mqtt_password: <mqtt password>
+```
+
+### Entities
+
+- `sensor.slc_balance`
+- `sensor.slc_interest_rate`
+- `sensor.slc_current_year`
+- `sensor.slc_salary_repayments`
+- `sensor.slc_direct_repayments`
+- `sensor.slc_interest_added`
+
+Optional diagnostic entity: `sensor.slc_last_poll`.
+
+Default poll interval is 6 hours. MQTT discovery must be enabled in Home Assistant.
+
 ## Pro Breeze Portable AC
 
 `apps/pro_breeze_ac/pro_breeze_ac.py` controls a Pro Breeze portable air conditioner locally with

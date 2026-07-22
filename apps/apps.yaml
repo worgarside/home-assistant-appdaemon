@@ -51,6 +51,27 @@ pro_breeze_ac:
 
   raw_sensor: sensor.pro_breeze_ac_raw_state
 
+# Student Loan (SLC)
+
+slc_balance:
+  module: slc_balance
+  class: SlcBalance
+  username: !secret slc_username
+  password: !secret slc_password
+  secret_answer: !secret slc_secret_answer
+  poll_interval: 21600
+
+  mqtt_host: !secret appdaemon_mqtt_host
+  mqtt_port: 1883
+  mqtt_username: !secret appdaemon_mqtt_username
+  mqtt_password: !secret appdaemon_mqtt_password
+  mqtt_discovery_prefix: homeassistant
+  mqtt_device_id: appdaemon_slc_student_loan
+  mqtt_device_name: Student Loan
+  mqtt_base_topic: appdaemon/slc
+
+  raw_sensor: sensor.slc_last_poll
+
 # Robot Vacuum
 
 # cosmo_monitor:
