@@ -28,7 +28,16 @@ class SlcError(Exception):
 
 @dataclass(frozen=True)
 class LoanSummary:
-    """Parsed account overview fields."""
+    """Parsed account overview fields from the SLC portal.
+
+    Attributes:
+        balance: Outstanding loan balance in GBP, if present.
+        interest_rate_pct: Current interest rate as a percentage, if present.
+        current_year: Academic year label for the summary section, if present.
+        salary_repayments: Salary repayments for the year in GBP, if present.
+        direct_repayments: Direct repayments for the year in GBP, if present.
+        interest_added: Interest added for the year in GBP, if present.
+    """
 
     balance: float | None
     interest_rate_pct: float | None
@@ -39,6 +48,14 @@ class LoanSummary:
 
 
 def _page_title(html: str) -> str | None:
+    """Extract the document title from an HTML page.
+
+    Args:
+        html: Raw HTML response body.
+
+    Returns:
+        The stripped title text, or None if no title element is found.
+    """
     match = re.search(r"<title[^>]*>(.*?)</title>", html, flags=re.IGNORECASE | re.DOTALL)
     if not match:
         return None
@@ -46,6 +63,15 @@ def _page_title(html: str) -> str | None:
 
 
 def _error_messages(html: str) -> list[str]:
+    """Collect user-facing error messages from an SLC HTML page.
+
+    Args:
+        html: Raw HTML response body.
+
+    Returns:
+        Deduplicated error strings found in GOV.UK error markup or known
+        SLC credential/secret-answer copy.
+    """
     messages: list[str] = []
     for match in re.finditer(
         r'class="[^"]*(?:govuk-error-message|govuk-error-summary__list)[^"]*"[^>]*>'
@@ -77,6 +103,16 @@ def _error_messages(html: str) -> list[str]:
 
 
 def _extract_inputs(html: str) -> dict[str, str]:
+    """Extract named input values from HTML forms.
+
+    Checkbox, submit, button, image, and file inputs are skipped.
+
+    Args:
+        html: Raw HTML response body.
+
+    Returns:
+        Mapping of input ``name`` attributes to their ``value`` attributes.
+    """
     fields: dict[str, str] = {}
     for tag in re.findall(r"<input\b[^>]*>", html, flags=re.IGNORECASE):
         name_m = re.search(r'name=["\']([^"\']+)["\']', tag, flags=re.IGNORECASE)
@@ -92,7 +128,19 @@ def _extract_inputs(html: str) -> dict[str, str]:
 
 
 def _first_form_action(html: str, base_url: str) -> str:
-    form = re.search(r"<form\b([^>]*)>", html, flags=re.IGNORECASE)
+    """Resolve the first form action URL against a page URL.
+
+    Args:
+        html: Raw HTML response body.
+        base_url: Absolute URL of the page containing the form.
+
+    Returns:
+        Absolute form action URL.
+
+    Raises:
+        SlcError: If no form element is present on the page.
+    """
+    form = re.search(r"<form\b([^>]*>", html, flags=re.IGNORECASE)
     if not form:
         raise SlcError(f"No <form> found on page ({base_url})")
     action_m = re.search(
@@ -105,6 +153,15 @@ def _first_form_action(html: str, base_url: str) -> str:
 
 
 def _element_text_by_id(html: str, element_id: str) -> str | None:
+    """Return collapsed text content for an HTML element by id.
+
+    Args:
+        html: Raw HTML response body.
+        element_id: Value of the element's ``id`` attribute.
+
+    Returns:
+        Whitespace-collapsed text content, or None if the element is missing.
+    """
     pattern = (
         rf'<(?P<tag>\w+)\b[^>]*\bid=["\']{re.escape(element_id)}["\'][^>]*>'
         rf"(?P<body>.*?)</(?P=tag)>"
@@ -117,6 +174,14 @@ def _element_text_by_id(html: str, element_id: str) -> str | None:
 
 
 def _parse_money(text: str | None) -> float | None:
+    """Parse a GBP money amount from free text.
+
+    Args:
+        text: Text that may contain a currency amount.
+
+    Returns:
+        Parsed float value, or None if no amount can be parsed.
+    """
     if not text:
         return None
     match = re.search(r"-?\s*£?\s*([\d,]+(?:\.\d+)?)", text)
@@ -129,6 +194,15 @@ def _parse_money(text: str | None) -> float | None:
 
 
 def _parse_percent(text: str | None) -> float | None:
+    """Parse a percentage value from free text.
+
+    Args:
+        text: Text that may contain a percentage.
+
+    Returns:
+        Parsed percentage as a float (for example ``4.5`` for ``4.5%``), or
+        None if no percentage can be parsed.
+    """
     if not text:
         return None
     match = re.search(r"([\d.]+)\s*%", text)
@@ -141,7 +215,17 @@ def _parse_percent(text: str | None) -> float | None:
 
 
 def parse_overview(html: str) -> LoanSummary:
-    """Parse account overview HTML into structured fields."""
+    """Parse account overview HTML into structured fields.
+
+    Args:
+        html: Raw HTML from the secured account overview page.
+
+    Returns:
+        Parsed loan summary values.
+
+    Raises:
+        SlcError: If the outstanding balance element cannot be parsed.
+    """
     balance = _parse_money(_element_text_by_id(html, "balanceId_1"))
     interest_rate = _parse_percent(_element_text_by_id(html, "interestAsOfDateId-1"))
     year_text = _element_text_by_id(html, "academicYearSummaryId-1")
@@ -173,6 +257,12 @@ def parse_overview(html: str) -> LoanSummary:
 
 
 def _client() -> httpx2.Client:
+    """Create an HTTP client configured for the SLC portal.
+
+    Returns:
+        An ``httpx2.Client`` with browser-like headers, redirect following, and
+        a 45 second timeout.
+    """
     return httpx2.Client(
         headers={
             "User-Agent": USER_AGENT,
@@ -185,6 +275,11 @@ def _client() -> httpx2.Client:
 
 
 def _reject_cookies(client: httpx2.Client) -> None:
+    """Reject non-essential cookies on the SLC service landing page.
+
+    Args:
+        client: Authenticated session client used for subsequent requests.
+    """
     client.post(
         f"{ORS_URL}?cookies-consent",
         data={
@@ -198,6 +293,17 @@ def _reject_cookies(client: httpx2.Client) -> None:
 
 
 def _open_login_page(client: httpx2.Client) -> httpx2.Response:
+    """Navigate from the ORS landing page to the SLC credential form.
+
+    Args:
+        client: Session client used for cookie and redirect handling.
+
+    Returns:
+        Response for the SLC login form page.
+
+    Raises:
+        SlcError: If the login form fields are not present in the response.
+    """
     client.get(ORS_URL)
     _reject_cookies(client)
     login = client.post(
@@ -225,6 +331,21 @@ def _post_credentials(
     username: str,
     password: str,
 ) -> httpx2.Response:
+    """Submit username and password to the SLC login form.
+
+    Args:
+        client: Session client used for cookie and redirect handling.
+        login_response: Response containing the credential form.
+        username: Email address or customer reference number.
+        password: Account password.
+
+    Returns:
+        Response for the secret-answer page.
+
+    Raises:
+        SlcError: If required hidden fields are missing, credentials are
+            rejected, or the secret-answer page is not returned.
+    """
     fields = _extract_inputs(login_response.text)
     for required in ("_csrf", "lt", "execution", "_eventId"):
         if required not in fields:
@@ -257,6 +378,19 @@ def _post_secret_answer(
     *,
     secret_answer: str,
 ) -> httpx2.Response:
+    """Submit the secret answer and complete the Okta redirect chain.
+
+    Args:
+        client: Session client used for cookie and redirect handling.
+        secret_page: Response containing the secret-answer form.
+        secret_answer: Account secret answer.
+
+    Returns:
+        Final response after secret submission, typically the overview page.
+
+    Raises:
+        SlcError: If the CSRF token is missing or the secret answer is rejected.
+    """
     fields = _extract_inputs(secret_page.text)
     if "_csrf" not in fields:
         csrf = re.search(
@@ -292,11 +426,21 @@ def _ensure_overview(
     client: httpx2.Client,
     after_secret: httpx2.Response,
 ) -> httpx2.Response:
-    """Return HTML that contains the balance overview.
+    """Return a response that contains the balance overview markup.
 
     Successful secret-answer auth already redirects through Okta onto the
-    overview page. A follow-up GET to /summary without ``idp=2`` drops the
+    overview page. A follow-up GET to ``/summary`` without ``idp=2`` drops the
     session back to the landing chooser.
+
+    Args:
+        client: Session client used for cookie and redirect handling.
+        after_secret: Response returned after secret-answer submission.
+
+    Returns:
+        Response whose body includes the ``balanceId_1`` element.
+
+    Raises:
+        SlcError: If none of the overview candidate URLs contain the balance.
     """
     if "balanceId_1" in after_secret.text:
         return after_secret
@@ -328,7 +472,20 @@ def fetch_loan_summary(
     password: str,
     secret_answer: str,
 ) -> LoanSummary:
-    """Authenticate and return the parsed loan summary."""
+    """Authenticate to the SLC portal and return the parsed loan summary.
+
+    Args:
+        username: Email address or customer reference number.
+        password: Account password.
+        secret_answer: Account secret answer.
+
+    Returns:
+        Parsed overview values including balance and repayment fields.
+
+    Raises:
+        SlcError: If login, secret answer, or overview parsing fails.
+        httpx2.HTTPError: If an HTTP transport error occurs.
+    """
     with _client() as client:
         login_page = _open_login_page(client)
         secret_page = _post_credentials(
