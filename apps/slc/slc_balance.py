@@ -22,7 +22,17 @@ MAX_NOTIFICATION_ERROR_CHARS: Final[int] = 240
 
 @dataclass(frozen=True)
 class SensorSpec:
-    """MQTT discovery metadata for one SLC sensor."""
+    """MQTT discovery metadata for one SLC sensor.
+
+    Attributes:
+        key: Short sensor key used in MQTT state topics.
+        object_id: Home Assistant MQTT ``object_id`` / entity object id.
+        unique_id: Stable Home Assistant unique id.
+        name: Friendly sensor name shown in Home Assistant.
+        unit_of_measurement: Optional unit published in discovery.
+        device_class: Optional Home Assistant device class.
+        state_class: Optional Home Assistant state class.
+    """
 
     key: str
     object_id: str
@@ -88,7 +98,12 @@ SENSORS: Final[tuple[SensorSpec, ...]] = (
 
 
 class SlcBalance(hass.Hass):
-    """Publish Student Loans Company overview values as MQTT sensors."""
+    """Publish Student Loans Company overview values as MQTT sensors.
+
+    The app authenticates to the SLC portal on a schedule, publishes retained
+    MQTT discovery/state for six sensors under one device, and notifies via
+    ``script.notify_will`` after repeated poll failures.
+    """
 
     mqtt_client: Any | None
     notification_id: str
@@ -99,7 +114,12 @@ class SlcBalance(hass.Hass):
     secret_answer: str
 
     def initialize(self) -> None:
-        """Initialize the app."""
+        """Initialize credentials, MQTT discovery, and the poll schedule.
+
+        Required ``apps.yaml`` args are ``username``, ``password``, and
+        ``secret_answer``. Optional args configure poll interval, MQTT topics,
+        failure threshold, and notification targets.
+        """
         self.mqtt_client = None
         self._consecutive_failures = 0
         self._mqtt_reported_available = False
@@ -140,7 +160,7 @@ class SlcBalance(hass.Hass):
         )
 
     def terminate(self) -> None:
-        """Cleanly disconnect the MQTT client on AppDaemon shutdown."""
+        """Mark sensors offline and disconnect the MQTT client."""
         if self.mqtt_client is None:
             return
 
@@ -149,7 +169,15 @@ class SlcBalance(hass.Hass):
         self.mqtt_client.disconnect()
 
     def poll_slc(self, kwargs: dict[str, Any] | None = None) -> None:
-        """Fetch the SLC overview and publish MQTT sensor states."""
+        """Fetch the SLC overview and publish MQTT sensor states.
+
+        On success, sensor states and availability are updated and any prior
+        failure notification is cleared. On failure, diagnostics are updated
+        and consecutive-failure availability/notification logic runs.
+
+        Args:
+            kwargs: Unused AppDaemon scheduler kwargs.
+        """
         del kwargs
 
         try:
@@ -175,6 +203,11 @@ class SlcBalance(hass.Hass):
         )
 
     def _configure_mqtt(self) -> None:
+        """Configure and connect the MQTT client used for discovery and state.
+
+        If ``mqtt_host`` is unset, MQTT publishing is disabled and the app
+        continues without discovery.
+        """
         self.mqtt_host = self.args.get("mqtt_host")
         self.mqtt_port = int(self.args.get("mqtt_port", 1883))
         self.mqtt_username = self.args.get("mqtt_username")
@@ -240,6 +273,15 @@ class SlcBalance(hass.Hass):
         reason_code: Any,
         properties: Any,
     ) -> None:
+        """Publish discovery and force availability online after MQTT connect.
+
+        Args:
+            client: Connected Paho MQTT client.
+            userdata: Unused client userdata.
+            flags: Unused connect flags.
+            reason_code: MQTT connect reason/result code.
+            properties: Unused MQTT v5 properties.
+        """
         del client, userdata, flags, properties
 
         is_failure = getattr(reason_code, "is_failure", None)
@@ -257,9 +299,26 @@ class SlcBalance(hass.Hass):
         self._set_availability(is_available=True, force=True)
 
     def _mqtt_topic(self, topic: str) -> str:
+        """Build an absolute MQTT topic under the configured base topic.
+
+        Args:
+            topic: Relative topic suffix, for example ``availability``.
+
+        Returns:
+            Absolute topic path under ``mqtt_base_topic``.
+        """
         return f"{self.mqtt_base_topic}/{topic}"
 
     def _publish_mqtt(self, topic: str, payload: Any, *, retain: bool = True) -> None:
+        """Publish a retained or non-retained MQTT payload.
+
+        Non-string payloads are JSON-encoded with sorted keys.
+
+        Args:
+            topic: Absolute MQTT topic.
+            payload: String or JSON-serializable payload.
+            retain: Whether the broker should retain the message.
+        """
         if self.mqtt_client is None:
             return
 
@@ -269,6 +328,11 @@ class SlcBalance(hass.Hass):
         self.mqtt_client.publish(topic, payload, qos=self.mqtt_qos, retain=retain)
 
     def _device_block(self) -> dict[str, Any]:
+        """Build the shared Home Assistant MQTT device registry block.
+
+        Returns:
+            Device metadata used by all SLC sensor discovery payloads.
+        """
         return {
             "identifiers": [self.mqtt_device_id],
             "manufacturer": "Student Loans Company",
@@ -277,12 +341,18 @@ class SlcBalance(hass.Hass):
         }
 
     def _origin_block(self) -> dict[str, str]:
+        """Build the MQTT discovery origin metadata block.
+
+        Returns:
+            Origin metadata identifying this AppDaemon app.
+        """
         return {
             "name": "AppDaemon SLC Balance",
             "sw": "home-assistant-appdaemon",
         }
 
     def _publish_mqtt_discovery(self) -> None:
+        """Publish Home Assistant MQTT discovery configs for all SLC sensors."""
         availability_topic = self._mqtt_topic("availability")
         for sensor in SENSORS:
             config: dict[str, Any] = {
@@ -309,12 +379,26 @@ class SlcBalance(hass.Hass):
             self._publish_mqtt(config_topic, config)
 
     def _publish_mqtt_availability(self, *, is_available: bool) -> None:
+        """Publish the shared MQTT availability payload.
+
+        Args:
+            is_available: Whether sensors should be marked online.
+        """
         self._publish_mqtt(
             self._mqtt_topic("availability"),
             "online" if is_available else "offline",
         )
 
     def _value_for_sensor(self, summary: LoanSummary, key: str) -> str | None:
+        """Format a loan-summary field for MQTT state publication.
+
+        Args:
+            summary: Parsed SLC overview values.
+            key: Sensor key from ``SensorSpec.key``.
+
+        Returns:
+            String state payload, or None if the value is missing/unknown.
+        """
         values: dict[str, str | None] = {
             "balance": None if summary.balance is None else f"{summary.balance:.2f}",
             "interest_rate": (
@@ -342,6 +426,11 @@ class SlcBalance(hass.Hass):
         return values.get(key)
 
     def _publish_sensor_states(self, summary: LoanSummary) -> None:
+        """Publish retained MQTT state topics for all known sensor values.
+
+        Args:
+            summary: Parsed SLC overview values.
+        """
         if self.mqtt_client is None:
             return
 
@@ -358,6 +447,13 @@ class SlcBalance(hass.Hass):
         summary: LoanSummary | None = None,
         error: str | None = None,
     ) -> None:
+        """Update the optional diagnostic ``raw_sensor`` entity.
+
+        Args:
+            state: Entity state string, typically ``ok`` or ``error``.
+            summary: Successful overview values to store as attributes.
+            error: Failure message to store as an attribute.
+        """
         if self.raw_sensor is None:
             return
 
@@ -383,6 +479,16 @@ class SlcBalance(hass.Hass):
         force: bool = False,
         error: str | None = None,
     ) -> None:
+        """Update MQTT availability based on consecutive poll outcomes.
+
+        Successful polls reset the failure counter. Failures only mark sensors
+        offline and trigger a notification after the configured threshold.
+
+        Args:
+            is_available: Whether the latest poll succeeded.
+            force: Republish online even if already marked available.
+            error: Optional failure reason retained for notification text.
+        """
         if is_available:
             self._consecutive_failures = 0
             self._last_failure_message = None
@@ -412,6 +518,7 @@ class SlcBalance(hass.Hass):
         self._notify_failure()
 
     def _notify_failure(self) -> None:
+        """Send a one-shot failure notification via the configured script."""
         if self._failure_notified:
             return
 
@@ -441,6 +548,7 @@ class SlcBalance(hass.Hass):
         self.log("Sent SLC failure notification (%s)", self.notification_id)
 
     def _clear_failure_notification(self) -> None:
+        """Clear the sticky failure notification after a successful poll."""
         if not self._failure_notified:
             return
 

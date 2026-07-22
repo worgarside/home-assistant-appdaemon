@@ -140,7 +140,7 @@ def _first_form_action(html: str, base_url: str) -> str:
     Raises:
         SlcError: If no form element is present on the page.
     """
-    form = re.search(r"<form\b([^>]*>", html, flags=re.IGNORECASE)
+    form = re.search(r"<form\b([^>]*)>", html, flags=re.IGNORECASE)
     if not form:
         raise SlcError(f"No <form> found on page ({base_url})")
     action_m = re.search(
