@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v0.24.1 (2026-07-26)
+
+### Bug Fixes
+
+- Improve polling logic for AC app
+  ([#265](https://github.com/worgarside/home-assistant-appdaemon/pull/265),
+  [`5bdec67`](https://github.com/worgarside/home-assistant-appdaemon/commit/5bdec67d134a5cf11a1f2053b4431e03e4faf92b))
+
+
 ## v0.24.0 (2026-07-22)
 
 ### Features
