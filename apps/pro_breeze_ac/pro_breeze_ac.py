@@ -53,6 +53,7 @@ class ProBreezeAC(hass.Hass):
         """Initialize the app."""
         self.device = None
         self.mqtt_client = None
+        self._poll_timer = None
         self._last_raw_status_json: str | None = None
         self._consecutive_failures = 0
         self._mqtt_reported_available = False
@@ -79,10 +80,10 @@ class ProBreezeAC(hass.Hass):
 
         self._configure_mqtt()
 
-        self.run_every(self.poll_device, "now", self.poll_interval)
+        self._schedule_poll(delay=0)
 
         self.log(
-            "Initialized Pro Breeze AC polling every %s seconds "
+            "Initialized Pro Breeze AC with %s seconds between polls "
             "(availability offline after %s consecutive failures); configured DPS: %s",
             self.poll_interval,
             self.availability_failure_threshold,
@@ -91,6 +92,10 @@ class ProBreezeAC(hass.Hass):
 
     def terminate(self) -> None:
         """Cleanly disconnect the MQTT client on AppDaemon shutdown."""
+        if self._poll_timer is not None:
+            self.cancel_timer(self._poll_timer)
+            self._poll_timer = None
+
         if self.mqtt_client is None:
             return
 
@@ -101,17 +106,31 @@ class ProBreezeAC(hass.Hass):
     def poll_device(self, kwargs: dict[str, Any] | None = None) -> None:
         """Poll the AC and sync mapped DPS values into Home Assistant."""
         del kwargs
+        self._poll_timer = None
 
-        status = self._read_status()
-        if status is None:
-            return
+        try:
+            status = self._read_status()
+            if status is None:
+                return
 
-        dps = self._extract_dps(status)
-        self._write_raw_sensor("updated", status, dps=dps)
-        self._set_availability(is_available=True)
-        self._log_status_if_changed(status, dps)
+            dps = self._extract_dps(status)
+            self._write_raw_sensor("updated", status, dps=dps)
+            self._set_availability(is_available=True)
+            self._log_status_if_changed(status, dps)
 
-        self._publish_mqtt_climate_state(dps)
+            self._publish_mqtt_climate_state(dps)
+        finally:
+            self._schedule_poll()
+
+    def _schedule_poll(self, delay: float | None = None) -> None:
+        """Schedule one poll, replacing any pending poll timer."""
+        if self._poll_timer is not None:
+            self.cancel_timer(self._poll_timer)
+
+        self._poll_timer = self.run_in(
+            self.poll_device,
+            self.poll_interval if delay is None else delay,
+        )
 
     def handle_mqtt_command(self, kwargs: dict[str, Any]) -> None:
         """Handle a command received from the MQTT climate entity."""
@@ -618,7 +637,7 @@ class ProBreezeAC(hass.Hass):
             return
 
         self.log("Set %s DP %s => %r; result: %s", label, dp, value, result)
-        self.run_in(self.poll_device, COMMAND_REFRESH_DELAY)
+        self._schedule_poll(COMMAND_REFRESH_DELAY)
 
     @staticmethod
     def _swing_from_dp(value: Any) -> bool:
