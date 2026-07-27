@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from contextlib import suppress
-from datetime import datetime, time, timedelta
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Final, cast
 
@@ -28,6 +28,7 @@ from .store import HabitStore
 INVALID_STATES: Final[frozenset[object]] = frozenset(
     {None, "", "unknown", "unavailable"},
 )
+NEXT_REMINDER_ECHO_TOLERANCE_SECONDS: Final[float] = 2
 AI_INSTRUCTIONS: Final[str] = """Write one short habit reminder notification message.
 
 Tone: neutral, positive, and encouraging. Do not be sarcastic, preachy, or overly
@@ -482,7 +483,7 @@ class HabitTracker(hass.Hass):
         )
         fire_at = max(fire_at, now)
         pending = PendingReminder(
-            fire_at=fire_at.isoformat(),
+            fire_at=self._utc_isoformat(fire_at),
             next_index=1,
             final_index=config.repeat_count + 1,
         )
@@ -507,7 +508,7 @@ class HabitTracker(hass.Hass):
         )
         fire_at = max(fire_at, now)
         pending = PendingReminder(
-            fire_at=fire_at.isoformat(),
+            fire_at=self._utc_isoformat(fire_at),
             next_index=1,
             final_index=data.mood_repeat_count + 1,
         )
@@ -527,15 +528,23 @@ class HabitTracker(hass.Hass):
             raise ValueError("habit is not configured")
         fire_at = self._parse_fire_at(payload)
         pending = data.pending_reminders.get(slot)
+        if (
+            pending is not None
+            and abs(
+                (fire_at - self._parse_fire_at(pending.fire_at)).total_seconds(),
+            )
+            < NEXT_REMINDER_ECHO_TOLERANCE_SECONDS
+        ):
+            return
         if pending is None:
             pending = PendingReminder(
-                fire_at=fire_at.isoformat(),
+                fire_at=self._utc_isoformat(fire_at),
                 next_index=1,
                 final_index=config.repeat_count + 1,
             )
         else:
             pending = PendingReminder(
-                fire_at=fire_at.isoformat(),
+                fire_at=self._utc_isoformat(fire_at),
                 next_index=pending.next_index,
                 final_index=pending.final_index,
             )
@@ -553,15 +562,23 @@ class HabitTracker(hass.Hass):
             return
         fire_at = self._parse_fire_at(payload)
         pending = data.pending_mood_reminder
+        if (
+            pending is not None
+            and abs(
+                (fire_at - self._parse_fire_at(pending.fire_at)).total_seconds(),
+            )
+            < NEXT_REMINDER_ECHO_TOLERANCE_SECONDS
+        ):
+            return
         if pending is None:
             pending = PendingReminder(
-                fire_at=fire_at.isoformat(),
+                fire_at=self._utc_isoformat(fire_at),
                 next_index=1,
                 final_index=data.mood_repeat_count + 1,
             )
         else:
             pending = PendingReminder(
-                fire_at=fire_at.isoformat(),
+                fire_at=self._utc_isoformat(fire_at),
                 next_index=pending.next_index,
                 final_index=pending.final_index,
             )
@@ -616,7 +633,7 @@ class HabitTracker(hass.Hass):
         payload = (
             "None"
             if pending is None
-            else self._parse_fire_at(pending.fire_at).isoformat()
+            else self._utc_isoformat(self._parse_fire_at(pending.fire_at))
         )
         self.mqtt.publish(
             f"{self.mqtt.topic(f'{user}/{slot}')}/next_reminder/state",
@@ -630,7 +647,7 @@ class HabitTracker(hass.Hass):
         payload = (
             "None"
             if pending is None
-            else self._parse_fire_at(pending.fire_at).isoformat()
+            else self._utc_isoformat(self._parse_fire_at(pending.fire_at))
         )
         self.mqtt.publish(
             f"{self.mqtt.topic(f'{user}/mood')}/mood_next_reminder/state",
@@ -647,10 +664,17 @@ class HabitTracker(hass.Hass):
 
     def _parse_fire_at(self, value: str) -> datetime:
         fire_at = datetime.fromisoformat(value)
-        now = self._aware_now()
+        # HA MQTT datetime commands are UTC; naive payloads must not be treated
+        # as local or schedules jump an hour early and re-fire immediately.
         if fire_at.tzinfo is None:
-            return fire_at.replace(tzinfo=now.tzinfo)
-        return fire_at.astimezone(now.tzinfo)
+            fire_at = fire_at.replace(tzinfo=UTC)
+        return fire_at.astimezone(self._aware_now().tzinfo)
+
+    @staticmethod
+    def _utc_isoformat(value: datetime) -> str:
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC).isoformat()
 
     def _aware_now(self) -> datetime:
         now = self.datetime()
@@ -707,9 +731,48 @@ class HabitTracker(hass.Hass):
             self._clear_pending(user, slot)
             self.store.save()
             return
+        # Notify immediately with the fallback so a slow/failed AI call cannot
+        # delay or swallow the reminder. Arm the next fire before waiting on AI,
+        # then upgrade the same notification_id if AI returns text.
         message = self._fallback_message(config)
+        self.log(
+            "Sending habit reminder for %s slot %s (attempt %s)",
+            user,
+            slot,
+            reminder_index,
+        )
+        self._notify_habit(user, slot, config, message)
+        last_index = final_index or config.repeat_count + 1
+        next_index = reminder_index + 1
+        now = self._aware_now()
+        if next_index <= last_index and repeat_fits_before_midnight(
+            now,
+            config.repeat_interval_minutes,
+        ):
+            fire_at = now + timedelta(minutes=config.repeat_interval_minutes)
+            pending = PendingReminder(
+                fire_at=self._utc_isoformat(fire_at),
+                next_index=next_index,
+                final_index=last_index,
+            )
+            data.pending_reminders[slot] = pending
+            self._arm_pending(user, slot, pending)
+        else:
+            self._clear_pending(user, slot)
+        self.store.save()
+        self._publish_next_reminder(user, slot)
         if config.ai_enabled:
-            message = self._ai_message(user, config, reminder_index) or message
+            ai_message = self._ai_message(user, config, reminder_index)
+            if ai_message and ai_message != message:
+                self._notify_habit(user, slot, config, ai_message)
+
+    def _notify_habit(
+        self,
+        user: str,
+        slot: int,
+        config: HabitConfig,
+        message: str,
+    ) -> None:
         action = (
             f"MARK_HABIT_AS_COMPLETE__{user.upper()}__{slot}"
             if config.habit_type is HabitType.BINARY
@@ -747,25 +810,6 @@ class HabitTracker(hass.Hass):
                 slot,
                 error,
             )
-        last_index = final_index or config.repeat_count + 1
-        next_index = reminder_index + 1
-        now = self._aware_now()
-        if next_index <= last_index and repeat_fits_before_midnight(
-            now,
-            config.repeat_interval_minutes,
-        ):
-            fire_at = now + timedelta(minutes=config.repeat_interval_minutes)
-            pending = PendingReminder(
-                fire_at=fire_at.isoformat(),
-                next_index=next_index,
-                final_index=last_index,
-            )
-            data.pending_reminders[slot] = pending
-            self._arm_pending(user, slot, pending)
-        else:
-            self._clear_pending(user, slot)
-        self.store.save()
-        self._publish_next_reminder(user, slot)
 
     def _send_mood_reminder(
         self,
@@ -806,7 +850,7 @@ class HabitTracker(hass.Hass):
         ):
             fire_at = now + timedelta(minutes=data.mood_repeat_interval_minutes)
             pending = PendingReminder(
-                fire_at=fire_at.isoformat(),
+                fire_at=self._utc_isoformat(fire_at),
                 next_index=next_index,
                 final_index=last_index,
             )
@@ -837,19 +881,22 @@ class HabitTracker(hass.Hass):
                     "instructions": f"{AI_INSTRUCTIONS}\n\nContext:\n{context}",
                 },
                 return_response=True,
+                hass_timeout=180,
+                timeout=180,
             )
         except Exception as error:
             self.error("AI habit reminder failed: %s", error)
             return None
-        if isinstance(response, dict):
-            generated = response.get("data")
-            if isinstance(generated, str) and generated.strip():
-                return generated.strip()
-            nested = response.get("response")
+        if not isinstance(response, dict):
+            return None
+        candidates: list[object] = [response.get("data")]
+        for key in ("response", "service_response"):
+            nested = response.get(key)
             if isinstance(nested, dict):
-                generated = nested.get("data")
-                if isinstance(generated, str) and generated.strip():
-                    return generated.strip()
+                candidates.append(nested.get("data"))
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
         return None
 
     def _ai_context(
