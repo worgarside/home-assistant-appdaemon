@@ -157,14 +157,12 @@ class StoreData:
     """Top-level versioned persistence schema."""
 
     users: dict[str, UserData]
-    bootstrap_complete: bool = False
     schema_version: int = SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the complete store."""
         return {
             "schema_version": self.schema_version,
-            "bootstrap_complete": self.bootstrap_complete,
             "users": {user: data.to_dict() for user, data in self.users.items()},
         }
 
@@ -187,11 +185,6 @@ class StoreData:
         }
         return cls(
             users=users,
-            bootstrap_complete=_boolean(
-                value,
-                "bootstrap_complete",
-                default=False,
-            ),
             schema_version=version,
         )
 

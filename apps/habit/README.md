@@ -125,19 +125,12 @@ No individual habit belongs in `apps.yaml`.
 
 `reminders_enabled` is intentionally `false` during migration so the existing Home
 Assistant automations and AppDaemon cannot send duplicate reminders. Enable it only
-after the MQTT entities, migrated habits, test notifications, and dashboards have
-been verified.
+after the MQTT entities, manually configured habits, test notifications, and
+dashboards have been verified.
 
-## Legacy migration
-
-When no store exists, the app performs a one-time import of the old numbered
-`input_*` helpers. It imports configured names, types, icons, reminder settings, AI
-settings, current completion state, and mood values. It then marks bootstrap complete
-in the store and does not import again.
-
-The old Home Assistant helpers and automations must remain available for this first
-startup. Remove them only after confirming that the imported MQTT entities are
-correct.
+Habits are configured in the GUI after deploy — there is no import from the old
+numbered `input_*` helpers. Keep the legacy helpers/automations until the new
+entities and reminders are verified, then remove them at cutover.
 
 AppDaemon uses its own slot-based mobile action IDs during the overlap period. This
 prevents both the legacy Home Assistant action automation and AppDaemon from handling

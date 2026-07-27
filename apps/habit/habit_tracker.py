@@ -70,7 +70,7 @@ class HabitTracker(hass.Hass):
     mqtt: HabitMqtt | None
 
     def initialize(self) -> None:
-        """Load disk state, bootstrap legacy helpers, and start integrations."""
+        """Load disk state and start integrations."""
         self.users = tuple(str(user).lower() for user in self.args.get("users", ()))
         if not self.users:
             self.error("At least one user is required")
@@ -90,8 +90,6 @@ class HabitTracker(hass.Hass):
             ),
             self.users,
         )
-        if not self.store.existed and not self.store.data.bootstrap_complete:
-            self._bootstrap_legacy_helpers()
         self._startup_retired: dict[str, tuple[int, ...]] = {}
         for user in self.users:
             _, retired = self._normalize_user_slots(user)
@@ -766,101 +764,6 @@ class HabitTracker(hass.Hass):
             with suppress(AttributeError):
                 self.reminders.remove(user, slot)
         return added_spare, retired
-
-    def _bootstrap_legacy_helpers(self) -> None:
-        for user in self.users:
-            data = self.store.data.users[user]
-            data.habits.clear()
-            names = self.get_state("input_text") or {}
-            if not isinstance(names, dict):
-                continue
-            prefix = f"{user}_habit_"
-            slots: set[tuple[HabitType, int]] = set()
-            for entity_id in names:
-                object_id = str(entity_id).removeprefix("input_text.")
-                if not object_id.startswith(prefix) or not object_id.endswith("_name"):
-                    continue
-                middle = object_id[len(prefix) : -len("_name")]
-                habit_type_raw, _, slot_raw = middle.rpartition("_")
-                with suppress(ValueError):
-                    slots.add((HabitType(habit_type_raw), int(slot_raw)))
-            for habit_type, old_slot in sorted(
-                slots,
-                key=lambda item: (item[0], item[1]),
-            ):
-                old_prefix = f"{user}_habit_{habit_type}_{old_slot}"
-                name = self._legacy_state(f"input_text.{old_prefix}_name")
-                if not name:
-                    continue
-                new_slot = max(data.habits, default=0) + 1
-                config = HabitConfig(
-                    slot=new_slot,
-                    name=name,
-                    habit_type=habit_type,
-                    reminder_time=self._legacy_state(
-                        f"input_datetime.{old_prefix}_reminder_time",
-                        "09:00:00",
-                    ),
-                    repeat_count=self._legacy_int(
-                        f"input_number.{old_prefix}_repeat_reminder_count",
-                        0,
-                    ),
-                    repeat_interval_minutes=self._legacy_int(
-                        f"input_number.{old_prefix}_repeat_reminder_interval",
-                        60,
-                    ),
-                    streak_min_days_per_week=self._legacy_int(
-                        f"input_number.{old_prefix}_streak_min_days_per_week",
-                        7,
-                    ),
-                    ai_enabled=self._legacy_state(
-                        f"input_boolean.{old_prefix}_ai_reminder",
-                    )
-                    == "on",
-                    icon_on=self._legacy_state(
-                        f"input_text.{old_prefix}_icon_on",
-                        "mdi:check-circle",
-                    ),
-                    icon_active=self._legacy_state(
-                        f"input_text.{old_prefix}_icon_active",
-                        "mdi:counter",
-                    ),
-                    icon_off=self._legacy_state(
-                        f"input_text.{old_prefix}_icon_off",
-                        "mdi:circle-outline",
-                    ),
-                    icon_zero=self._legacy_state(
-                        f"input_text.{old_prefix}_icon_zero",
-                        "mdi:counter",
-                    ),
-                )
-                data.habits[new_slot] = config
-                state_domain = (
-                    "input_boolean" if habit_type is HabitType.BINARY else "input_number"
-                )
-                current = self._legacy_state(f"{state_domain}.{old_prefix}", "0")
-                count = 1 if current == "on" else int(float(current))
-                if count > 0:
-                    data.completions[new_slot] = {
-                        self.datetime().date().isoformat(): count,
-                    }
-            data.mood_today = self._legacy_state(
-                f"input_select.{user}_mood_today",
-                "Not Set",
-            )
-            data.mood_note = self._legacy_state(f"input_text.{user}_mood_note")
-        self.store.data.bootstrap_complete = True
-
-    def _legacy_state(self, entity_id: str, default: str = "") -> str:
-        value = self.get_state(entity_id)
-        return default if value in INVALID_STATES else str(value)
-
-    def _legacy_int(self, entity_id: str, default: int) -> int:
-        value = self._legacy_state(entity_id)
-        try:
-            return int(float(value))
-        except ValueError:
-            return default
 
     def _validate_config(self) -> bool:  # noqa: C901, PLR0912
         errors: list[str] = []

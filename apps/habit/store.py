@@ -22,7 +22,6 @@ class HabitStore:
         self.path = directory / "store.json"
         self.backup_path = directory / "store.json.backup"
         self.users = users
-        self.existed = self.path.exists()
         self.data = self._load()
 
     def _load(self) -> StoreData:
