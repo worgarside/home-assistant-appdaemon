@@ -46,7 +46,6 @@ Each user also receives:
 - `select.<user>_mood_today`
 - `text.<user>_mood_note`
 - `sensor.<user>_mood_streak`
-- `button.<user>_habit_test_reminder`
 
 ## Persistence
 
@@ -94,8 +93,6 @@ run too close to midnight.
 
 Notifications are sent through the user's configured `script.notify_*` script. Their
 action button either marks a binary habit complete or increments a countable habit.
-The per-user test button sends a reminder for the lowest-numbered configured,
-incomplete habit.
 
 At local midnight, current values reset while historical completions remain available
 for streak calculations. Mood and mood notes reset at the same time.

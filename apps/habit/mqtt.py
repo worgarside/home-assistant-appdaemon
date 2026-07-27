@@ -160,7 +160,6 @@ class HabitMqtt:
             ),
         )
         self._retire_opposite_state(user, config.slot, is_binary=is_binary)
-        self._retire_per_slot_test(user, config.slot)
         for spec in specs:
             object_id = f"{prefix}_{spec.key}"
             payload: dict[str, object] = {
@@ -172,10 +171,9 @@ class HabitMqtt:
                 "payload_not_available": "offline",
                 "device": self._device(user),
                 "origin": self._origin(),
+                "state_topic": f"{state_prefix}/{spec.key}/state",
                 **spec.extra,
             }
-            if spec.component != "button":
-                payload["state_topic"] = f"{state_prefix}/{spec.key}/state"
             if spec.component != "sensor":
                 payload["command_topic"] = f"{state_prefix}/{spec.key}/set"
             if spec.component == "switch":
@@ -186,23 +184,6 @@ class HabitMqtt:
                 payload["json_attributes_topic"] = f"{state_prefix}/{spec.key}/attributes"
             self.publish(self._config_topic(spec.component, object_id), payload)
         self.publish_config_state(user, config)
-
-    def publish_user_discovery(self, user: str) -> None:
-        """Publish one deterministic test-reminder button per user."""
-        object_id = f"{user}_habit_test_reminder"
-        payload = {
-            "name": "Test habit reminder",
-            "unique_id": f"appdaemon_{object_id}",
-            "default_entity_id": f"button.{object_id}",
-            "command_topic": self.topic(f"{user}/test/set"),
-            "availability_topic": self.topic("availability"),
-            "payload_available": "online",
-            "payload_not_available": "offline",
-            "icon": "mdi:bell-ring-outline",
-            "device": self._device(user),
-            "origin": self._origin(),
-        }
-        self.publish(self._config_topic("button", object_id), payload)
 
     def publish_config_state(self, user: str, config: HabitConfig) -> None:
         """Publish all editable values for one slot."""
@@ -272,8 +253,8 @@ class HabitMqtt:
                 self.publish(self._config_topic(spec.component, object_id), payload)
 
     def subscribe_commands(self) -> None:
-        """Subscribe to slot, mood, and user test commands."""
-        for topic in ("+/+/+/set", "+/mood/+/set", "+/test/set"):
+        """Subscribe to slot and mood commands."""
+        for topic in ("+/+/+/set", "+/mood/+/set"):
             self.client.subscribe(self.topic(topic), qos=self.settings.qos)
 
     def _handle_connect(
@@ -320,12 +301,6 @@ class HabitMqtt:
             "",
         )
 
-    def _retire_per_slot_test(self, user: str, slot: int) -> None:
-        self.publish(
-            self._config_topic("button", f"{user}_habit_{slot}_test"),
-            "",
-        )
-
     def _config_topic(self, component: str, object_id: str) -> str:
         return f"{self.settings.discovery_prefix}/{component}/{object_id}/config"
 
@@ -362,7 +337,6 @@ def _slot_entity_keys() -> tuple[tuple[str, str], ...]:
         ("text", "icon_off"),
         ("text", "icon_zero"),
         ("sensor", "streak"),
-        ("button", "test"),
     )
 
 

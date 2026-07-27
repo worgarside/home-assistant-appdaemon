@@ -58,7 +58,6 @@ REQUIRED_USER_KEYS: Final[tuple[str, ...]] = (
     "weather_entity",
     "sun_entity",
 )
-TEST_TOPIC_PARTS: Final[int] = 3
 SLOT_TOPIC_PARTS: Final[int] = 4
 ACTION_PARTS: Final[int] = 3
 MAX_NETWORK_PORT: Final[int] = 65535
@@ -174,7 +173,6 @@ class HabitTracker(hass.Hass):
             return
         self.mqtt.publish_mood_discovery(self.users)
         for user in self.users:
-            self.mqtt.publish_user_discovery(user)
             for retired_slot in self._startup_retired[user]:
                 self.mqtt.retire_slot(user, retired_slot)
             for config in self.store.data.users[user].habits.values():
@@ -190,9 +188,7 @@ class HabitTracker(hass.Hass):
             return
         parts = topic[len(prefix) :].split("/")
         try:
-            if len(parts) == TEST_TOPIC_PARTS and parts[1] == "test":
-                self._send_test_reminder(parts[0])
-            elif len(parts) == SLOT_TOPIC_PARTS and parts[1] == "mood":
+            if len(parts) == SLOT_TOPIC_PARTS and parts[1] == "mood":
                 self._update_mood(parts[0], parts[2], payload)
             elif len(parts) == SLOT_TOPIC_PARTS:
                 self._update_habit(parts[0], int(parts[1]), parts[2], payload)
@@ -391,9 +387,8 @@ class HabitTracker(hass.Hass):
         reminder_index: int,
         *,
         final_index: int | None = None,
-        force: bool = False,
     ) -> None:
-        if not force and not self.reminders_enabled:
+        if not self.reminders_enabled:
             return
         data = self.store.data.users[user]
         config = data.habits.get(slot)
@@ -448,35 +443,15 @@ class HabitTracker(hass.Hass):
                 slot,
                 error,
             )
-        if not force:
-            last_index = final_index or config.repeat_count + 1
-            self.reminders.schedule_next_repeat(
-                user,
-                slot,
-                next_index=reminder_index + 1,
-                final_index=last_index,
-                interval_minutes=config.repeat_interval_minutes,
-                now=self.datetime(),
-            )
-
-    def _send_test_reminder(self, user: str) -> None:
-        """Test the lowest numbered configured incomplete habit."""
-        today = self.datetime().date().isoformat()
-        data = self.store.data.users[user]
-        candidates = sorted(
-            config.slot
-            for config in data.habits.values()
-            if config.configured
-            and data.completions.get(config.slot, {}).get(today, 0) == 0
+        last_index = final_index or config.repeat_count + 1
+        self.reminders.schedule_next_repeat(
+            user,
+            slot,
+            next_index=reminder_index + 1,
+            final_index=last_index,
+            interval_minutes=config.repeat_interval_minutes,
+            now=self.datetime(),
         )
-        if not candidates:
-            self.log(
-                "No configured incomplete habit available for %s test reminder",
-                user,
-                level="WARNING",
-            )
-            return
-        self._send_reminder(user, candidates[0], 1, force=True)
 
     def _ai_message(
         self,
