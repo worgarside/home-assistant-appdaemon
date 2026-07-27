@@ -3,7 +3,7 @@
 ## Student Loan (SLC)
 
 `apps/slc/slc_balance.py` polls the UK Student Loans Company account overview and
-publishes six Home Assistant MQTT sensors under one `Student Loan` device.
+publishes eight Home Assistant MQTT sensors under one `Student Loan` device.
 
 ### AppDaemon Runtime Dependencies
 
@@ -32,10 +32,12 @@ appdaemon_mqtt_password: <mqtt password>
 
 - `sensor.slc_balance`
 - `sensor.slc_interest_rate`
+- `sensor.slc_as_of_date`
 - `sensor.slc_current_year`
 - `sensor.slc_salary_repayments`
 - `sensor.slc_direct_repayments`
 - `sensor.slc_interest_added`
+- `sensor.slc_last_successful_scrape`
 
 Optional diagnostic entity: `sensor.slc_last_poll`.
 

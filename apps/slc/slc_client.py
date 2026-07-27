@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date, datetime
 from html import unescape
 from urllib.parse import urljoin
+from zoneinfo import ZoneInfo
 
 import httpx2
 
@@ -33,6 +35,7 @@ class LoanSummary:
     Attributes:
         balance: Outstanding loan balance in GBP, if present.
         interest_rate_pct: Current interest rate as a percentage, if present.
+        as_of_date: Balance/interest "as of" date from the portal, if present.
         current_year: Academic year label for the summary section, if present.
         salary_repayments: Salary repayments for the year in GBP, if present.
         direct_repayments: Direct repayments for the year in GBP, if present.
@@ -41,6 +44,7 @@ class LoanSummary:
 
     balance: float | None
     interest_rate_pct: float | None
+    as_of_date: date | None
     current_year: str | None
     salary_repayments: float | None
     direct_repayments: float | None
@@ -214,6 +218,39 @@ def _parse_percent(text: str | None) -> float | None:
         return None
 
 
+def _parse_as_of_date(text: str | None) -> date | None:
+    """Parse the portal "as of" date from interest-rate text.
+
+    Accepts formats such as ``as of 26 July 2026`` and ``as of 01/01/2026``.
+
+    Args:
+        text: Text that may contain an "as of" date phrase.
+
+    Returns:
+        Parsed calendar date, or None if no supported date is found.
+    """
+    if not text:
+        return None
+    match = re.search(
+        r"as\s+of\s+(\d{1,2}\s+[A-Za-z]+\s+\d{4}|\d{1,2}/\d{1,2}/\d{4})",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    raw = match.group(1)
+    for fmt in ("%d %B %Y", "%d %b %Y", "%d/%m/%Y"):
+        try:
+            return (
+                datetime.strptime(raw, fmt)
+                .replace(tzinfo=ZoneInfo("Europe/London"))
+                .date()
+            )
+        except ValueError:
+            continue
+    return None
+
+
 def parse_overview(html: str) -> LoanSummary:
     """Parse account overview HTML into structured fields.
 
@@ -227,7 +264,9 @@ def parse_overview(html: str) -> LoanSummary:
         SlcError: If the outstanding balance element cannot be parsed.
     """
     balance = _parse_money(_element_text_by_id(html, "balanceId_1"))
-    interest_rate = _parse_percent(_element_text_by_id(html, "interestAsOfDateId-1"))
+    interest_text = _element_text_by_id(html, "interestAsOfDateId-1")
+    interest_rate = _parse_percent(interest_text)
+    as_of_date = _parse_as_of_date(interest_text)
     year_text = _element_text_by_id(html, "academicYearSummaryId-1")
     current_year = None
     if year_text:
@@ -238,6 +277,7 @@ def parse_overview(html: str) -> LoanSummary:
     summary = LoanSummary(
         balance=balance,
         interest_rate_pct=interest_rate,
+        as_of_date=as_of_date,
         current_year=current_year,
         salary_repayments=_parse_money(
             _element_text_by_id(html, "salaryRepaymentAmountId-1"),
