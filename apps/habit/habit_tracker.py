@@ -1015,7 +1015,7 @@ class HabitTracker(hass.Hass):
                 "Daylight remaining minutes",
                 self._daylight_minutes(str(user_config["sun_entity"]), now),
             ),
-            ("Local time", now.strftime("%H:%M")),
+            ("Local date", _local_date_label(now)),
             ("Reminder attempt", attempt),
         ]
         return "\n".join(
@@ -1050,7 +1050,7 @@ class HabitTracker(hass.Hass):
                 if self.get_state(str(user_config["workday_entity"])) == "on"
                 else "no",
             ),
-            ("Local time", now.strftime("%H:%M")),
+            ("Local date", _local_date_label(now)),
             ("Reminder attempt", attempt),
         ]
         return "\n".join(
@@ -1347,6 +1347,16 @@ def _mqtt_bool(payload: str) -> bool:
     if normalized in {"off", "false", "0"}:
         return False
     raise ValueError("expected an on/off value")
+
+
+def _local_date_label(value: datetime) -> str:
+    day = value.day
+    suffix = (
+        "th"
+        if 11 <= day % 100 <= 13  # noqa: PLR2004
+        else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")  # codespell:ignore nd
+    )
+    return f"{value.strftime('%A')}, {day}{suffix} {value.strftime('%B %Y')}"
 
 
 def _service_result(response: object) -> dict[str, Any] | None:
