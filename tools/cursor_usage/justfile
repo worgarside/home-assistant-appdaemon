@@ -1,0 +1,22 @@
+python := "/usr/bin/python3"
+webhook_url := "http://homeassistant.local:8123/api/webhook/cursor_session_token"
+tool_dir := justfile_directory()
+
+default:
+    @just --list
+
+# Install and load the six-hourly launch agent
+setup url=webhook_url:
+    {{ python }} "{{ tool_dir }}/manage_launch_agent.py" setup "{{ url }}"
+
+# Unload the launch agent and remove all installed files and logs
+teardown:
+    {{ python }} "{{ tool_dir }}/manage_launch_agent.py" teardown
+
+# Validate Cursor's local token without sending it
+check:
+    {{ python }} "{{ tool_dir }}/cursor_token_push.py" --check
+
+# Show whether the launch agent is installed and loaded
+status:
+    {{ python }} "{{ tool_dir }}/manage_launch_agent.py" status
