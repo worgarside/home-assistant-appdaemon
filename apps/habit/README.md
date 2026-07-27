@@ -47,6 +47,9 @@ Each user also receives:
 - `select.<user>_mood_today`
 - `text.<user>_mood_note`
 - `sensor.<user>_mood_streak`
+- `time.<user>_mood_reminder_time` (daily template for the first fire)
+- `datetime.<user>_mood_next_reminder` (editable absolute fire time)
+- `number.<user>_mood_repeat_count` and `number.<user>_mood_repeat_interval`
 
 ## Persistence
 
@@ -109,6 +112,12 @@ of chain clears the store entry, publishes an empty/`None` datetime state, and c
 the timer.
 
 `reminders_enabled: false` still no-ops sends and does not arm timers.
+
+Mood reminders use the same durable `next_reminder` pattern with user-level
+entities (`mood_reminder_time`, `mood_next_reminder`, repeat count/interval). A
+mood reminder is skipped once today's mood is set, and the pending chain is
+cleared at that point. Midnight re-seeds an incomplete mood check-in for the new
+day.
 
 Notifications are sent through the user's configured `script.notify_*` script. Their
 action button either marks a binary habit complete or increments a countable habit.

@@ -16,6 +16,7 @@ from .models import (
     HabitConfig,
     HabitType,
     PendingReminder,
+    UserData,
     calculate_mood_streak,
     calculate_streak,
     normalize_spare_slot,
@@ -196,7 +197,7 @@ class HabitTracker(hass.Hass):
         except (KeyError, TypeError, ValueError) as error:
             self.error("Rejected MQTT command %s=%r: %s", topic, payload, error)
 
-    def _update_habit(  # noqa: C901, PLR0912
+    def _update_habit(  # noqa: C901, PLR0912, PLR0915
         self,
         user: str,
         slot: int,
@@ -275,21 +276,50 @@ class HabitTracker(hass.Hass):
 
     def _update_mood(self, user: str, key: str, payload: str) -> None:
         data = self.store.data.users[user]
-        today = self.datetime().date().isoformat()
         if key == "mood_today":
-            if payload not in MOOD_OPTIONS:
-                raise ValueError("invalid mood option")
-            data.mood_today = payload
-            if payload != "Not Set":
-                data.mood_history[today] = payload
-            else:
-                data.mood_history.pop(today, None)
+            self._apply_mood_today(user, data, payload)
         elif key == "mood_note":
             data.mood_note = payload[:255]
+        elif key == "mood_reminder_time":
+            self._apply_mood_reminder_time(user, data, payload)
+        elif key == "mood_next_reminder":
+            self._override_mood_next_reminder(user, payload)
+            return
+        elif key == "mood_repeat_count":
+            data.mood_repeat_count = _bounded_int(payload, 0, 100)
+        elif key == "mood_repeat_interval":
+            data.mood_repeat_interval_minutes = _bounded_int(payload, 1, 1440)
         else:
             raise KeyError(key)
+        data.__post_init__()
         self.store.save()
         self._publish_mood_state(user)
+
+    def _apply_mood_today(self, user: str, data: UserData, payload: str) -> None:
+        if payload not in MOOD_OPTIONS:
+            raise ValueError("invalid mood option")
+        today = self.datetime().date().isoformat()
+        data.mood_today = payload
+        if payload != "Not Set":
+            data.mood_history[today] = payload
+            self._clear_mood_pending(user)
+            return
+        data.mood_history.pop(today, None)
+        self._seed_mood_reminder(user, force=True)
+
+    def _apply_mood_reminder_time(
+        self,
+        user: str,
+        data: UserData,
+        payload: str,
+    ) -> None:
+        time.fromisoformat(payload)
+        data.mood_reminder_time = payload
+        pending = data.pending_mood_reminder
+        if pending is not None and pending.next_index == 1:
+            self._seed_mood_reminder(user, force=True)
+        elif pending is None:
+            self._seed_mood_reminder(user)
 
     def _set_completion(self, user: str, slot: int, count: int) -> None:
         day = self.datetime().date().isoformat()
@@ -373,28 +403,56 @@ class HabitTracker(hass.Hass):
                 ),
             ),
         )
+        self.mqtt.publish(f"{prefix}/mood_reminder_time/state", data.mood_reminder_time)
+        self.mqtt.publish(
+            f"{prefix}/mood_repeat_count/state",
+            str(data.mood_repeat_count),
+        )
+        self.mqtt.publish(
+            f"{prefix}/mood_repeat_interval/state",
+            str(data.mood_repeat_interval_minutes),
+        )
+        self._publish_mood_next_reminder(user)
 
     def _restore_reminders(self) -> None:
         if not self.reminders_enabled:
             return
         for user, data in self.store.data.users.items():
-            changed = False
-            for slot, config in list(data.habits.items()):
-                pending = data.pending_reminders.get(slot)
-                if not config.configured or self._is_complete_today(user, slot):
-                    if pending is not None:
-                        self._clear_pending(user, slot)
-                        changed = True
-                    continue
-                if pending is None:
-                    self._seed_next_reminder(user, config)
-                    changed = True
-                    continue
-                self._arm_pending(user, slot, pending)
+            changed = self._restore_habit_reminders(user, data)
+            changed = self._restore_mood_reminder(user, data) or changed
             if changed:
                 self.store.save()
             for slot in data.habits:
                 self._publish_next_reminder(user, slot)
+            self._publish_mood_next_reminder(user)
+
+    def _restore_habit_reminders(self, user: str, data: UserData) -> bool:
+        changed = False
+        for slot, config in list(data.habits.items()):
+            pending = data.pending_reminders.get(slot)
+            if not config.configured or self._is_complete_today(user, slot):
+                if pending is not None:
+                    self._clear_pending(user, slot)
+                    changed = True
+                continue
+            if pending is None:
+                self._seed_next_reminder(user, config)
+                changed = True
+                continue
+            self._arm_pending(user, slot, pending)
+        return changed
+
+    def _restore_mood_reminder(self, user: str, data: UserData) -> bool:
+        if data.mood_today != "Not Set":
+            if data.pending_mood_reminder is None:
+                return False
+            self._clear_mood_pending(user)
+            return True
+        if data.pending_mood_reminder is None:
+            self._seed_mood_reminder(user)
+            return True
+        self._arm_mood_pending(user, data.pending_mood_reminder)
+        return False
 
     def _seed_next_reminder(
         self,
@@ -427,6 +485,31 @@ class HabitTracker(hass.Hass):
         self._arm_pending(user, config.slot, pending)
         self._publish_next_reminder(user, config.slot)
 
+    def _seed_mood_reminder(self, user: str, *, force: bool = False) -> None:
+        if not self.reminders_enabled:
+            return
+        data = self.store.data.users[user]
+        if data.mood_today != "Not Set":
+            self._clear_mood_pending(user)
+            return
+        if not force and data.pending_mood_reminder is not None:
+            return
+        now = self.datetime()
+        fire_at = datetime.combine(
+            now.date(),
+            time.fromisoformat(data.mood_reminder_time),
+            tzinfo=now.tzinfo,
+        )
+        fire_at = max(fire_at, now)
+        pending = PendingReminder(
+            fire_at=fire_at.isoformat(),
+            next_index=1,
+            final_index=data.mood_repeat_count + 1,
+        )
+        data.pending_mood_reminder = pending
+        self._arm_mood_pending(user, pending)
+        self._publish_mood_next_reminder(user)
+
     def _override_next_reminder(self, user: str, slot: int, payload: str) -> None:
         data = self.store.data.users[user]
         config = data.habits[slot]
@@ -456,6 +539,32 @@ class HabitTracker(hass.Hass):
         self.store.save()
         self._publish_next_reminder(user, slot)
 
+    def _override_mood_next_reminder(self, user: str, payload: str) -> None:
+        data = self.store.data.users[user]
+        if not payload.strip() or payload.strip() == "None":
+            self._clear_mood_pending(user)
+            self.store.save()
+            self._publish_mood_state(user)
+            return
+        fire_at = self._parse_fire_at(payload)
+        pending = data.pending_mood_reminder
+        if pending is None:
+            pending = PendingReminder(
+                fire_at=fire_at.isoformat(),
+                next_index=1,
+                final_index=data.mood_repeat_count + 1,
+            )
+        else:
+            pending = PendingReminder(
+                fire_at=fire_at.isoformat(),
+                next_index=pending.next_index,
+                final_index=pending.final_index,
+            )
+        data.pending_mood_reminder = pending
+        self._arm_mood_pending(user, pending)
+        self.store.save()
+        self._publish_mood_state(user)
+
     def _arm_pending(self, user: str, slot: int, pending: PendingReminder) -> None:
         if not self.reminders_enabled:
             self.reminders.cancel(user, slot)
@@ -471,10 +580,29 @@ class HabitTracker(hass.Hass):
             now=now,
         )
 
+    def _arm_mood_pending(self, user: str, pending: PendingReminder) -> None:
+        if not self.reminders_enabled:
+            self.reminders.cancel_mood(user)
+            return
+        now = self.datetime()
+        fire_at = self._parse_fire_at(pending.fire_at)
+        self.reminders.schedule_mood(
+            user,
+            fire_at=fire_at,
+            reminder_index=pending.next_index,
+            final_index=pending.final_index,
+            now=now,
+        )
+
     def _clear_pending(self, user: str, slot: int) -> None:
         self.reminders.cancel(user, slot)
         self.store.data.users[user].pending_reminders.pop(slot, None)
         self._publish_next_reminder(user, slot)
+
+    def _clear_mood_pending(self, user: str) -> None:
+        self.reminders.cancel_mood(user)
+        self.store.data.users[user].pending_mood_reminder = None
+        self._publish_mood_next_reminder(user)
 
     def _publish_next_reminder(self, user: str, slot: int) -> None:
         if self.mqtt is None:
@@ -483,6 +611,16 @@ class HabitTracker(hass.Hass):
         payload = pending.fire_at if pending is not None else "None"
         self.mqtt.publish(
             f"{self.mqtt.topic(f'{user}/{slot}')}/next_reminder/state",
+            payload,
+        )
+
+    def _publish_mood_next_reminder(self, user: str) -> None:
+        if self.mqtt is None:
+            return
+        pending = self.store.data.users[user].pending_mood_reminder
+        payload = pending.fire_at if pending is not None else "None"
+        self.mqtt.publish(
+            f"{self.mqtt.topic(f'{user}/mood')}/mood_next_reminder/state",
             payload,
         )
 
@@ -495,7 +633,7 @@ class HabitTracker(hass.Hass):
         )
 
     def _parse_fire_at(self, value: str) -> datetime:
-        fire_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        fire_at = datetime.fromisoformat(value)
         now = self.datetime()
         if fire_at.tzinfo is None and now.tzinfo is not None:
             return fire_at.replace(tzinfo=now.tzinfo)
@@ -504,6 +642,18 @@ class HabitTracker(hass.Hass):
         return fire_at
 
     def _reminder_callback(self, kwargs: dict[str, Any]) -> None:
+        if kwargs.get("kind") == "mood":
+            self._send_mood_reminder(
+                str(kwargs["user"]),
+                int(kwargs["reminder_index"]),
+                final_index=int(
+                    kwargs.get(
+                        "final_index",
+                        self.store.data.users[str(kwargs["user"])].mood_repeat_count + 1,
+                    ),
+                ),
+            )
+            return
         self._send_reminder(
             str(kwargs["user"]),
             int(kwargs["slot"]),
@@ -598,6 +748,56 @@ class HabitTracker(hass.Hass):
             self._clear_pending(user, slot)
         self.store.save()
         self._publish_next_reminder(user, slot)
+
+    def _send_mood_reminder(
+        self,
+        user: str,
+        reminder_index: int,
+        *,
+        final_index: int | None = None,
+    ) -> None:
+        if not self.reminders_enabled:
+            return
+        data = self.store.data.users[user]
+        if data.mood_today != "Not Set":
+            self._clear_mood_pending(user)
+            self.store.save()
+            return
+        user_config = self._user_config(user)
+        try:
+            self.call_service(
+                "script/turn_on",
+                entity_id=user_config["notify_script"],
+                variables={
+                    "title": "Mood Reminder",
+                    "message": "Don't forget to log how you're feeling today.",
+                    "notification_id": f"{user}_mood_reminder",
+                    "mobile_notification_icon": "mdi:emoticon-outline",
+                    "url": user_config["dashboard_url"],
+                    "actions": "[]",
+                },
+            )
+        except Exception as error:
+            self.error("Mood reminder notification failed for %s: %s", user, error)
+        last_index = final_index or data.mood_repeat_count + 1
+        next_index = reminder_index + 1
+        now = self.datetime()
+        if next_index <= last_index and repeat_fits_before_midnight(
+            now,
+            data.mood_repeat_interval_minutes,
+        ):
+            fire_at = now + timedelta(minutes=data.mood_repeat_interval_minutes)
+            pending = PendingReminder(
+                fire_at=fire_at.isoformat(),
+                next_index=next_index,
+                final_index=last_index,
+            )
+            data.pending_mood_reminder = pending
+            self._arm_mood_pending(user, pending)
+        else:
+            self._clear_mood_pending(user)
+        self.store.save()
+        self._publish_mood_next_reminder(user)
 
     def _ai_message(
         self,
@@ -862,9 +1062,11 @@ class HabitTracker(hass.Hass):
         data.mood_note = ""
         for slot in list(data.habits):
             self._clear_pending(user, slot)
+        self._clear_mood_pending(user)
         for config in data.habits.values():
             if config.configured:
                 self._seed_next_reminder(user, config, force=True)
+        self._seed_mood_reminder(user, force=True)
         self.store.save()
         self._publish_mood_state(user)
         for slot in data.habits:

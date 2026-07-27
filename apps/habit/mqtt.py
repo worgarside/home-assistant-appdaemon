@@ -237,6 +237,37 @@ class HabitMqtt:
                     {"unit_of_measurement": "days", "icon": "mdi:fire"},
                     configurable=False,
                 ),
+                EntitySpec(
+                    "time",
+                    "mood_reminder_time",
+                    "Mood reminder time",
+                    {},
+                ),
+                EntitySpec(
+                    "datetime",
+                    "mood_next_reminder",
+                    "Mood next reminder",
+                    {"icon": "mdi:bell-ring-outline"},
+                    configurable=False,
+                ),
+                EntitySpec(
+                    "number",
+                    "mood_repeat_count",
+                    "Mood repeat count",
+                    {"min": 0, "max": 100, "step": 1, "mode": "box"},
+                ),
+                EntitySpec(
+                    "number",
+                    "mood_repeat_interval",
+                    "Mood repeat interval",
+                    {
+                        "min": 1,
+                        "max": 1440,
+                        "step": 1,
+                        "mode": "box",
+                        "unit_of_measurement": "min",
+                    },
+                ),
             ):
                 object_id = f"{user}_{spec.key}"
                 payload: dict[str, object] = {

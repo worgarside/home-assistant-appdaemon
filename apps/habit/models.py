@@ -144,6 +144,23 @@ class UserData:
     mood_history: dict[str, str] = field(default_factory=dict)
     mood_today: str = "Not Set"
     mood_note: str = ""
+    mood_reminder_time: str = "20:00:00"
+    mood_repeat_count: int = 0
+    mood_repeat_interval_minutes: int = 60
+    pending_mood_reminder: PendingReminder | None = None
+
+    def __post_init__(self) -> None:
+        """Reject malformed mood reminder configuration."""
+        if not 0 <= self.mood_repeat_count <= MAX_REPEAT_COUNT:
+            raise ValueError("mood_repeat_count must be between 0 and 100")
+        if not 1 <= self.mood_repeat_interval_minutes <= MAX_REPEAT_INTERVAL:
+            raise ValueError(
+                "mood_repeat_interval_minutes must be between 1 and 1440",
+            )
+        try:
+            time.fromisoformat(self.mood_reminder_time)
+        except ValueError as error:
+            raise ValueError("mood_reminder_time must use HH:MM:SS") from error
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize user data."""
@@ -161,6 +178,14 @@ class UserData:
             "mood_history": self.mood_history,
             "mood_today": self.mood_today,
             "mood_note": self.mood_note,
+            "mood_reminder_time": self.mood_reminder_time,
+            "mood_repeat_count": self.mood_repeat_count,
+            "mood_repeat_interval_minutes": self.mood_repeat_interval_minutes,
+            "pending_mood_reminder": (
+                None
+                if self.pending_mood_reminder is None
+                else self.pending_mood_reminder.to_dict()
+            ),
         }
 
     @classmethod
@@ -186,6 +211,12 @@ class UserData:
             _date_string(day): _mood(mood)
             for day, mood in _mapping(value, "mood_history").items()
         }
+        raw_pending_mood = value.get("pending_mood_reminder")
+        pending_mood = (
+            None
+            if raw_pending_mood in (None, {})
+            else PendingReminder.from_dict(_dict(raw_pending_mood))
+        )
         return cls(
             habits=habits,
             completions=completions,
@@ -193,6 +224,14 @@ class UserData:
             mood_history=mood_history,
             mood_today=_mood(value.get("mood_today", "Not Set")),
             mood_note=_string(value, "mood_note", ""),
+            mood_reminder_time=_string(value, "mood_reminder_time", "20:00:00"),
+            mood_repeat_count=_integer(value, "mood_repeat_count", 0),
+            mood_repeat_interval_minutes=_integer(
+                value,
+                "mood_repeat_interval_minutes",
+                60,
+            ),
+            pending_mood_reminder=pending_mood,
         )
 
 
