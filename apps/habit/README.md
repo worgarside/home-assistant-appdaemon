@@ -1,0 +1,159 @@
+# Habit and Mood Tracker
+
+This AppDaemon app provides a GUI-managed habit and mood tracker for Home
+Assistant. AppDaemon owns the entities through MQTT discovery, schedules reminders,
+records completions, calculates streaks, and persists everything across restarts.
+
+Habits are not defined in Python or `apps.yaml`. A user creates a habit by naming the
+spare `text.<user>_habit_<slot>_name` entity in Home Assistant. The app immediately
+creates another spare slot, so adding habits never requires a code or configuration
+change.
+
+## Structure
+
+- `habit_tracker.py` coordinates AppDaemon callbacks, MQTT commands, reminders,
+  completion actions, daily rollover, legacy migration, and AI context.
+- `models.py` defines the persisted schema and calculates habit and mood streaks.
+- `mqtt.py` publishes Home Assistant MQTT discovery, state, attributes, and
+  availability.
+- `reminders.py` owns daily schedules and cancellable repeat-reminder timers.
+- `store.py` writes the versioned JSON store atomically and keeps a backup plus an
+  append-only completion audit log.
+
+## Home Assistant entities
+
+Each user has one MQTT device containing their habits and mood entities. Habit entity
+IDs use stable numbered slots so changing a habit's name does not change its identity.
+
+Each slot exposes:
+
+- A text entity for the habit name.
+- A select entity for `binary` or `countable` tracking.
+- A switch for a binary habit, or a number for a countable habit.
+- A reminder-time entity.
+- Repeat count and interval controls.
+- A minimum-days-per-week streak control.
+- An AI-reminder switch.
+- Configurable icons for complete, incomplete, active, and zero states.
+- A streak sensor with completion age and 28-day completion rate attributes.
+
+The app maintains exactly one unnamed spare slot per user. Clearing a habit's name
+deletes that habit and its completion history. Unused discovery entities are retired
+from Home Assistant automatically.
+
+Each user also receives:
+
+- `select.<user>_mood_today`
+- `text.<user>_mood_note`
+- `sensor.<user>_mood_streak`
+- `button.<user>_habit_test_reminder`
+
+## Persistence
+
+The default data directory is:
+
+```text
+/homeassistant/.appdaemon/habits
+```
+
+`store.json` is the source of truth. Writes are atomic, the previous valid file is
+retained as `store.json.backup`, and invalid files are quarantined. Completion changes
+are additionally appended to `completions.jsonl`.
+
+Habit completion history is stored by local calendar date:
+
+- Binary habits store `1` when complete.
+- Countable habits store their daily count.
+- A count greater than zero counts as completion for streak purposes.
+
+With a seven-day minimum, streaks require daily completion. Lower settings allow gaps
+inside a week and continue across consecutive prior weeks that meet the configured
+minimum.
+
+## Reminders
+
+Configured habits receive a daily AppDaemon schedule. A reminder is skipped if the
+habit is already complete for the current day.
+
+Repeat reminders are scheduled one at a time and are cancelled when the habit is
+completed, renamed, deleted, or changes type. A repeat is not scheduled if it would
+run too close to midnight.
+
+Notifications are sent through the user's configured `script.notify_*` script. Their
+action button either marks a binary habit complete or increments a countable habit.
+The per-user test button sends a reminder for the lowest-numbered configured,
+incomplete habit.
+
+At local midnight, current values reset while historical completions remain available
+for streak calculations. Mood and mood notes reset at the same time.
+
+## AI reminders
+
+When a habit's AI-reminder switch is enabled, the app calls the configured
+`ai_task` entity and asks it for a short reminder. Context can include:
+
+- Current streak, completion age, and recent completion rate.
+- Mood and mood note.
+- Broad location category derived from Home Assistant labels.
+- Calendar availability for the next eight hours.
+- Workday, current activity, steps, and exercise-bike time.
+- Weather and remaining daylight.
+- Whether this is the first, repeated, or final reminder.
+
+Unavailable context is omitted. If AI generation fails or returns an empty response,
+the app sends a deterministic fallback reminder.
+
+This implementation ports the behavior from the legacy Home Assistant
+`script.habit_send_reminder`. AppDaemon becomes the source of truth after cutover;
+the legacy script is not called or retained, so reminder scheduling, context
+collection, AI generation, fallback handling, and notification delivery remain one
+cohesive workflow.
+
+## Configuration
+
+The app is registered in `apps/apps.yaml`. Its configuration contains only
+installation-level concerns:
+
+- Users and their notification/dashboard settings.
+- Context entity IDs and label names.
+- MQTT connection and discovery settings.
+- Persistence directory.
+- AI Task entity.
+- The `reminders_enabled` cutover flag.
+
+No individual habit belongs in `apps.yaml`.
+
+`reminders_enabled` is intentionally `false` during migration so the existing Home
+Assistant automations and AppDaemon cannot send duplicate reminders. Enable it only
+after the MQTT entities, migrated habits, test notifications, and dashboards have
+been verified.
+
+## Legacy migration
+
+When no store exists, the app performs a one-time import of the old numbered
+`input_*` helpers. It imports configured names, types, icons, reminder settings, AI
+settings, current completion state, and mood values. It then marks bootstrap complete
+in the store and does not import again.
+
+The old Home Assistant helpers and automations must remain available for this first
+startup. Remove them only after confirming that the imported MQTT entities are
+correct.
+
+AppDaemon uses its own slot-based mobile action IDs during the overlap period. This
+prevents both the legacy Home Assistant action automation and AppDaemon from handling
+the same countable-habit action and incrementing it twice. The legacy notification
+action automations are removed during final cutover.
+
+## Availability and recovery
+
+All discovered entities share an MQTT last-will availability topic. If AppDaemon or
+its MQTT connection stops, the entities become unavailable instead of displaying
+stale state.
+
+For troubleshooting, check:
+
+1. The AppDaemon log for configuration, MQTT, calendar, or AI errors.
+2. MQTT connectivity and the retained topics below `appdaemon/habits`.
+3. The contents and permissions of the persistence directory.
+4. That the configured Home Assistant labels and context entities exist.
+5. That `reminders_enabled` has the intended value for the current migration stage.

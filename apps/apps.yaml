@@ -20,6 +20,57 @@ version_file_committer:
   github_token: !secret appdaemon_github_token
   github_email: !secret google_maps_location_tracker_email
 
+# Habit and Mood Tracker
+
+habit_tracker:
+  module: habit.habit_tracker
+  class: HabitTracker
+  users:
+    - will
+    - vic
+  store_directory: /homeassistant/.appdaemon/habits
+  reminders_enabled: false
+  ai_task_entity: ai_task.habit_reminder_ai
+
+  mqtt_host: !secret appdaemon_mqtt_host
+  mqtt_port: 1883
+  mqtt_username: !secret appdaemon_mqtt_username
+  mqtt_password: !secret appdaemon_mqtt_password
+  mqtt_discovery_prefix: homeassistant
+  mqtt_base_topic: appdaemon/habits
+
+  context_labels:
+    calendar:
+      will: habit_context_calendar_will
+      vic: habit_context_calendar_vic
+    home: habit_context_home
+    work: habit_context_work
+    family: habit_context_family
+
+  user_config:
+    will:
+      notify_script: script.notify_will
+      dashboard_url: /home-will/health-fitness
+      person_entity: person.will
+      at_work_entity: binary_sensor.will_at_work
+      workday_entity: binary_sensor.workday
+      activity_entity: sensor.will_s_pixel_6_pro_detected_activity
+      steps_entity: sensor.will_s_pixel_6_pro_daily_steps
+      exercise_entity: sensor.joroto_exercise_bike_active_time
+      weather_entity: weather.met_office_fulham
+      sun_entity: sun.sun
+    vic:
+      notify_script: script.notify_vic
+      dashboard_url: /dashboard-mobile/vic-habits
+      person_entity: person.vic
+      at_work_entity: binary_sensor.vic_at_work
+      workday_entity: binary_sensor.workday
+      activity_entity: sensor.vics_iphone_activity
+      steps_entity: sensor.vics_iphone_steps
+      exercise_entity: sensor.joroto_exercise_bike_active_time
+      weather_entity: weather.met_office_fulham
+      sun_entity: sun.sun
+
 # Pro Breeze AC
 
 pro_breeze_ac:
@@ -81,8 +132,8 @@ slc_balance:
 # Log Processor
 
 # log_processor:
-  # module: log_processor
-  # class: LogProcessor
+#   module: log_processor
+#   class: LogProcessor
 
 # Monzo
 
