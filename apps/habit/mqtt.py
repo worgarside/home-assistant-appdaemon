@@ -244,6 +244,12 @@ class HabitMqtt:
                     {},
                 ),
                 EntitySpec(
+                    "switch",
+                    "mood_reminders",
+                    "Mood reminders",
+                    {},
+                ),
+                EntitySpec(
                     "datetime",
                     "mood_next_reminder",
                     "Mood next reminder",
@@ -286,6 +292,8 @@ class HabitMqtt:
                     payload["command_topic"] = self.topic(
                         f"{user}/mood/{spec.key}/set",
                     )
+                if spec.component == "switch":
+                    payload.update({"payload_on": "ON", "payload_off": "OFF"})
                 if spec.configurable:
                     payload["entity_category"] = "config"
                 self.publish(self._config_topic(spec.component, object_id), payload)

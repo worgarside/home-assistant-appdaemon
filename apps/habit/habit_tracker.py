@@ -288,6 +288,9 @@ class HabitTracker(hass.Hass):
             data.mood_note = payload[:255]
         elif key == "mood_reminder_time":
             self._apply_mood_reminder_time(user, data, payload)
+        elif key == "mood_reminders":
+            self._apply_mood_reminders_enabled(user, data, enabled=_mqtt_bool(payload))
+            return
         elif key == "mood_next_reminder":
             self._override_mood_next_reminder(user, payload)
             return
@@ -326,6 +329,21 @@ class HabitTracker(hass.Hass):
             self._seed_mood_reminder(user, force=True)
         elif pending is None:
             self._seed_mood_reminder(user)
+
+    def _apply_mood_reminders_enabled(
+        self,
+        user: str,
+        data: UserData,
+        *,
+        enabled: bool,
+    ) -> None:
+        data.mood_reminders_enabled = enabled
+        if enabled:
+            self._seed_mood_reminder(user, force=True)
+        else:
+            self._clear_mood_pending(user)
+        self.store.save()
+        self._publish_mood_state(user)
 
     def _set_completion(self, user: str, slot: int, count: int) -> None:
         day = self.datetime().date().isoformat()
@@ -411,6 +429,10 @@ class HabitTracker(hass.Hass):
         )
         self.mqtt.publish(f"{prefix}/mood_reminder_time/state", data.mood_reminder_time)
         self.mqtt.publish(
+            f"{prefix}/mood_reminders/state",
+            "ON" if data.mood_reminders_enabled else "OFF",
+        )
+        self.mqtt.publish(
             f"{prefix}/mood_repeat_count/state",
             str(data.mood_repeat_count),
         )
@@ -449,7 +471,7 @@ class HabitTracker(hass.Hass):
         return changed
 
     def _restore_mood_reminder(self, user: str, data: UserData) -> bool:
-        if data.mood_today != "Not Set":
+        if not data.mood_reminders_enabled or data.mood_today != "Not Set":
             if data.pending_mood_reminder is None:
                 return False
             self._clear_mood_pending(user)
@@ -495,6 +517,9 @@ class HabitTracker(hass.Hass):
         if not self.reminders_enabled:
             return
         data = self.store.data.users[user]
+        if not data.mood_reminders_enabled:
+            self._clear_mood_pending(user)
+            return
         if data.mood_today != "Not Set":
             self._clear_mood_pending(user)
             return
@@ -560,6 +585,8 @@ class HabitTracker(hass.Hass):
             self.store.save()
             self._publish_mood_state(user)
             return
+        if not data.mood_reminders_enabled:
+            raise ValueError("mood reminders are disabled")
         fire_at = self._parse_fire_at(payload)
         pending = data.pending_mood_reminder
         if (
@@ -603,7 +630,10 @@ class HabitTracker(hass.Hass):
         )
 
     def _arm_mood_pending(self, user: str, pending: PendingReminder) -> None:
-        if not self.reminders_enabled:
+        if (
+            not self.reminders_enabled
+            or not self.store.data.users[user].mood_reminders_enabled
+        ):
             self.reminders.cancel_mood(user)
             return
         now = self._aware_now()
@@ -821,6 +851,10 @@ class HabitTracker(hass.Hass):
         if not self.reminders_enabled:
             return
         data = self.store.data.users[user]
+        if not data.mood_reminders_enabled:
+            self._clear_mood_pending(user)
+            self.store.save()
+            return
         if data.mood_today != "Not Set":
             self._clear_mood_pending(user)
             self.store.save()
@@ -887,17 +921,13 @@ class HabitTracker(hass.Hass):
         except Exception as error:
             self.error("AI habit reminder failed: %s", error)
             return None
-        if not isinstance(response, dict):
-            return None
-        candidates: list[object] = [response.get("data")]
-        for key in ("response", "service_response"):
-            nested = response.get(key)
-            if isinstance(nested, dict):
-                candidates.append(nested.get("data"))
-        for candidate in candidates:
-            if isinstance(candidate, str) and candidate.strip():
-                return candidate.strip()
-        return None
+        message = _ai_response_text(response)
+        if message is None:
+            self.error(
+                "AI habit reminder returned no usable text (response=%r)",
+                response,
+            )
+        return message
 
     def _ai_context(
         self,
@@ -1014,11 +1044,12 @@ class HabitTracker(hass.Hass):
         except Exception as error:
             self.error("Calendar context failed for %s: %s", user, error)
             return ""
-        if not isinstance(response, dict):
+        payload = _service_result(response)
+        if payload is None:
             return ""
         busy_until: datetime | None = None
         next_start: datetime | None = None
-        for calendar in response.values():
+        for calendar in payload.values():
             if not isinstance(calendar, dict) or not isinstance(
                 calendar.get("events"),
                 list,
@@ -1247,6 +1278,33 @@ def _mqtt_bool(payload: str) -> bool:
     if normalized in {"off", "false", "0"}:
         return False
     raise ValueError("expected an on/off value")
+
+
+def _service_result(response: object) -> dict[str, Any] | None:
+    """Unwrap AppDaemon's call_service envelope to the Home Assistant result body."""
+    if not isinstance(response, dict):
+        return None
+    if response.get("success") is False:
+        return None
+    result = response.get("result")
+    if isinstance(result, dict):
+        return cast("dict[str, Any]", result)
+    return cast("dict[str, Any]", response)
+
+
+def _ai_response_text(response: object) -> str | None:
+    payload = _service_result(response)
+    if payload is None:
+        return None
+    candidates: list[object] = [payload.get("data")]
+    for key in ("response", "service_response", "result"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            candidates.append(nested.get("data"))
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return None
 
 
 def _bounded_int(payload: str, minimum: int, maximum: int) -> int:

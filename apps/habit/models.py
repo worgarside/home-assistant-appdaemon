@@ -145,6 +145,7 @@ class UserData:
     mood_today: str = "Not Set"
     mood_note: str = ""
     mood_reminder_time: str = "20:00:00"
+    mood_reminders_enabled: bool = True
     mood_repeat_count: int = 0
     mood_repeat_interval_minutes: int = 60
     pending_mood_reminder: PendingReminder | None = None
@@ -179,6 +180,7 @@ class UserData:
             "mood_today": self.mood_today,
             "mood_note": self.mood_note,
             "mood_reminder_time": self.mood_reminder_time,
+            "mood_reminders_enabled": self.mood_reminders_enabled,
             "mood_repeat_count": self.mood_repeat_count,
             "mood_repeat_interval_minutes": self.mood_repeat_interval_minutes,
             "pending_mood_reminder": (
@@ -225,6 +227,11 @@ class UserData:
             mood_today=_mood(value.get("mood_today", "Not Set")),
             mood_note=_string(value, "mood_note", ""),
             mood_reminder_time=_string(value, "mood_reminder_time", "20:00:00"),
+            mood_reminders_enabled=_boolean(
+                value,
+                "mood_reminders_enabled",
+                default=True,
+            ),
             mood_repeat_count=_integer(value, "mood_repeat_count", 0),
             mood_repeat_interval_minutes=_integer(
                 value,
