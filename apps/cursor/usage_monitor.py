@@ -77,7 +77,7 @@ SENSORS: Final[tuple[SensorSpec, ...]] = (
     SensorSpec(
         key="included_usage_percent",
         object_id="cursor_included_usage_percent",
-        name="Included usage",
+        name="Included usage percent",
         unit_of_measurement="%",
         state_class="measurement",
         icon="mdi:percent-circle-outline",
@@ -85,7 +85,7 @@ SENSORS: Final[tuple[SensorSpec, ...]] = (
     SensorSpec(
         key="auto_percent_used",
         object_id="cursor_auto_percent_used",
-        name="Auto usage",
+        name="Auto usage percent",
         unit_of_measurement="%",
         state_class="measurement",
         icon="mdi:robot-outline",
@@ -93,7 +93,7 @@ SENSORS: Final[tuple[SensorSpec, ...]] = (
     SensorSpec(
         key="api_percent_used",
         object_id="cursor_api_percent_used",
-        name="API usage",
+        name="API usage percent",
         unit_of_measurement="%",
         state_class="measurement",
         icon="mdi:api",
@@ -101,7 +101,7 @@ SENSORS: Final[tuple[SensorSpec, ...]] = (
     SensorSpec(
         key="total_percent_used",
         object_id="cursor_total_percent_used",
-        name="Total usage",
+        name="Total usage percent",
         unit_of_measurement="%",
         state_class="measurement",
         icon="mdi:gauge",
@@ -208,6 +208,7 @@ class CursorUsageMonitor(hass.Hass):
         try:
             token = self.token_path.read_text(encoding="utf-8").strip()
         except FileNotFoundError:
+            self.log("Waiting for a Cursor session token at %s", self.token_path)
             self._publish_error_state(
                 "unauthenticated",
                 "Waiting for a Cursor session token",
@@ -540,6 +541,7 @@ class CursorUsageMonitor(hass.Hass):
                 "name": sensor.name,
                 "unique_id": sensor.unique_id,
                 "object_id": sensor.object_id,
+                "default_entity_id": f"sensor.{sensor.object_id}",
                 "state_topic": state_topic,
                 "value_template": f"{{{{ value_json.{sensor.key} }}}}",
                 "availability_topic": availability_topic,
