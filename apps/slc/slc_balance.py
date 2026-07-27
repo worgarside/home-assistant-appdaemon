@@ -32,6 +32,7 @@ class SensorSpec:
         unit_of_measurement: Optional unit published in discovery.
         device_class: Optional Home Assistant device class.
         state_class: Optional Home Assistant state class.
+        entity_category: Optional Home Assistant entity category.
     """
 
     key: str
@@ -41,6 +42,7 @@ class SensorSpec:
     unit_of_measurement: str | None = None
     device_class: str | None = None
     state_class: str | None = None
+    entity_category: str | None = None
 
 
 SENSORS: Final[tuple[SensorSpec, ...]] = (
@@ -60,6 +62,13 @@ SENSORS: Final[tuple[SensorSpec, ...]] = (
         name="Interest rate",
         unit_of_measurement="%",
         state_class="measurement",
+    ),
+    SensorSpec(
+        key="as_of_date",
+        object_id="slc_as_of_date",
+        unique_id="appdaemon_slc_as_of_date",
+        name="As of date",
+        device_class="date",
     ),
     SensorSpec(
         key="current_year",
@@ -94,6 +103,14 @@ SENSORS: Final[tuple[SensorSpec, ...]] = (
         device_class="monetary",
         state_class="total",
     ),
+    SensorSpec(
+        key="last_successful_scrape",
+        object_id="slc_last_successful_scrape",
+        unique_id="appdaemon_slc_last_successful_scrape",
+        name="Last successful scrape",
+        device_class="timestamp",
+        entity_category="diagnostic",
+    ),
 )
 
 
@@ -101,7 +118,7 @@ class SlcBalance(hass.Hass):
     """Publish Student Loans Company overview values as MQTT sensors.
 
     The app authenticates to the SLC portal on a schedule, publishes retained
-    MQTT discovery/state for six sensors under one device, and notifies via
+    MQTT discovery/state for eight sensors under one device, and notifies via
     ``script.notify_will`` after repeated poll failures.
     """
 
@@ -192,14 +209,15 @@ class SlcBalance(hass.Hass):
             self._set_availability(is_available=False, error=str(err))
             return
 
-        self._publish_sensor_states(summary)
+        self._publish_sensor_states(summary, scraped_at=datetime.now(UTC))
         self._write_raw_sensor("ok", summary=summary)
         self._set_availability(is_available=True)
         self._clear_failure_notification()
         self.log(
-            "Published SLC overview (balance present=%s, year=%s)",
+            "Published SLC overview (balance present=%s, year=%s, as_of=%s)",
             summary.balance is not None,
             summary.current_year or "n/a",
+            summary.as_of_date.isoformat() if summary.as_of_date else "n/a",
         )
 
     def _configure_mqtt(self) -> None:
@@ -372,6 +390,8 @@ class SlcBalance(hass.Hass):
                 config["device_class"] = sensor.device_class
             if sensor.state_class is not None:
                 config["state_class"] = sensor.state_class
+            if sensor.entity_category is not None:
+                config["entity_category"] = sensor.entity_category
 
             config_topic = (
                 f"{self.mqtt_discovery_prefix}/sensor/{sensor.object_id}/config"
@@ -389,12 +409,19 @@ class SlcBalance(hass.Hass):
             "online" if is_available else "offline",
         )
 
-    def _value_for_sensor(self, summary: LoanSummary, key: str) -> str | None:
+    def _value_for_sensor(
+        self,
+        summary: LoanSummary,
+        key: str,
+        *,
+        scraped_at: datetime,
+    ) -> str | None:
         """Format a loan-summary field for MQTT state publication.
 
         Args:
             summary: Parsed SLC overview values.
             key: Sensor key from ``SensorSpec.key``.
+            scraped_at: UTC datetime of the successful scrape.
 
         Returns:
             String state payload, or None if the value is missing/unknown.
@@ -405,6 +432,9 @@ class SlcBalance(hass.Hass):
                 None
                 if summary.interest_rate_pct is None
                 else f"{summary.interest_rate_pct:g}"
+            ),
+            "as_of_date": (
+                None if summary.as_of_date is None else summary.as_of_date.isoformat()
             ),
             "current_year": summary.current_year,
             "salary_repayments": (
@@ -422,20 +452,27 @@ class SlcBalance(hass.Hass):
                 if summary.interest_added is None
                 else f"{summary.interest_added:.2f}"
             ),
+            "last_successful_scrape": scraped_at.isoformat(),
         }
         return values.get(key)
 
-    def _publish_sensor_states(self, summary: LoanSummary) -> None:
+    def _publish_sensor_states(
+        self,
+        summary: LoanSummary,
+        *,
+        scraped_at: datetime,
+    ) -> None:
         """Publish retained MQTT state topics for all known sensor values.
 
         Args:
             summary: Parsed SLC overview values.
+            scraped_at: UTC datetime of the successful scrape.
         """
         if self.mqtt_client is None:
             return
 
         for sensor in SENSORS:
-            value = self._value_for_sensor(summary, sensor.key)
+            value = self._value_for_sensor(summary, sensor.key, scraped_at=scraped_at)
             if value is None:
                 continue
             self._publish_mqtt(self._mqtt_topic(f"{sensor.key}/state"), value)
@@ -464,6 +501,9 @@ class SlcBalance(hass.Hass):
             attributes["current_year"] = summary.current_year
             attributes["balance"] = summary.balance
             attributes["interest_rate_pct"] = summary.interest_rate_pct
+            attributes["as_of_date"] = (
+                summary.as_of_date.isoformat() if summary.as_of_date else None
+            )
             attributes["salary_repayments"] = summary.salary_repayments
             attributes["direct_repayments"] = summary.direct_repayments
             attributes["interest_added"] = summary.interest_added
