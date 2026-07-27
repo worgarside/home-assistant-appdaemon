@@ -13,7 +13,7 @@ class Scheduler(Protocol):
         """Register a delayed callback."""
         ...
 
-    def cancel_timer(self, handle: str) -> bool:
+    def cancel_timer(self, handle: str, *, silent: bool = False) -> bool:
         """Cancel a timer."""
         ...
 
@@ -76,6 +76,14 @@ class ReminderManager:
         """Cancel the pending mood timer for a user."""
         self._cancel_handle(self._timers.pop((user, "mood"), None))
 
+    def release(self, user: str, slot: int) -> None:
+        """Drop a habit timer handle after it has already fired."""
+        self._timers.pop((user, self._habit_key(slot)), None)
+
+    def release_mood(self, user: str) -> None:
+        """Drop a mood timer handle after it has already fired."""
+        self._timers.pop((user, "mood"), None)
+
     def remove(self, user: str, slot: int) -> None:
         """Remove schedules for a retired slot."""
         self.cancel(user, slot)
@@ -110,7 +118,7 @@ class ReminderManager:
 
     def _cancel_handle(self, handle: str | None) -> None:
         if handle is not None:
-            self._scheduler.cancel_timer(handle)
+            self._scheduler.cancel_timer(handle, silent=True)
 
     @staticmethod
     def _habit_key(slot: int) -> str:

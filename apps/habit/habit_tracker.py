@@ -469,7 +469,7 @@ class HabitTracker(hass.Hass):
         data = self.store.data.users[user]
         if not force and config.slot in data.pending_reminders:
             return
-        now = self.datetime()
+        now = self._aware_now()
         fire_at = datetime.combine(
             now.date(),
             time.fromisoformat(config.reminder_time),
@@ -494,7 +494,7 @@ class HabitTracker(hass.Hass):
             return
         if not force and data.pending_mood_reminder is not None:
             return
-        now = self.datetime()
+        now = self._aware_now()
         fire_at = datetime.combine(
             now.date(),
             time.fromisoformat(data.mood_reminder_time),
@@ -569,7 +569,7 @@ class HabitTracker(hass.Hass):
         if not self.reminders_enabled:
             self.reminders.cancel(user, slot)
             return
-        now = self.datetime()
+        now = self._aware_now()
         fire_at = self._parse_fire_at(pending.fire_at)
         self.reminders.schedule_at(
             user,
@@ -584,7 +584,7 @@ class HabitTracker(hass.Hass):
         if not self.reminders_enabled:
             self.reminders.cancel_mood(user)
             return
-        now = self.datetime()
+        now = self._aware_now()
         fire_at = self._parse_fire_at(pending.fire_at)
         self.reminders.schedule_mood(
             user,
@@ -608,7 +608,11 @@ class HabitTracker(hass.Hass):
         if self.mqtt is None:
             return
         pending = self.store.data.users[user].pending_reminders.get(slot)
-        payload = pending.fire_at if pending is not None else "None"
+        payload = (
+            "None"
+            if pending is None
+            else self._parse_fire_at(pending.fire_at).isoformat()
+        )
         self.mqtt.publish(
             f"{self.mqtt.topic(f'{user}/{slot}')}/next_reminder/state",
             payload,
@@ -618,7 +622,11 @@ class HabitTracker(hass.Hass):
         if self.mqtt is None:
             return
         pending = self.store.data.users[user].pending_mood_reminder
-        payload = pending.fire_at if pending is not None else "None"
+        payload = (
+            "None"
+            if pending is None
+            else self._parse_fire_at(pending.fire_at).isoformat()
+        )
         self.mqtt.publish(
             f"{self.mqtt.topic(f'{user}/mood')}/mood_next_reminder/state",
             payload,
@@ -634,37 +642,42 @@ class HabitTracker(hass.Hass):
 
     def _parse_fire_at(self, value: str) -> datetime:
         fire_at = datetime.fromisoformat(value)
-        now = self.datetime()
-        if fire_at.tzinfo is None and now.tzinfo is not None:
+        now = self._aware_now()
+        if fire_at.tzinfo is None:
             return fire_at.replace(tzinfo=now.tzinfo)
-        if fire_at.tzinfo is not None and now.tzinfo is None:
-            return fire_at.replace(tzinfo=None)
-        return fire_at
+        return fire_at.astimezone(now.tzinfo)
+
+    def _aware_now(self) -> datetime:
+        now = self.datetime()
+        if now.tzinfo is not None:
+            return now
+        return now.replace(tzinfo=datetime.now().astimezone().tzinfo)
 
     def _reminder_callback(self, kwargs: dict[str, Any]) -> None:
+        user = str(kwargs["user"])
         if kwargs.get("kind") == "mood":
+            self.reminders.release_mood(user)
             self._send_mood_reminder(
-                str(kwargs["user"]),
+                user,
                 int(kwargs["reminder_index"]),
                 final_index=int(
                     kwargs.get(
                         "final_index",
-                        self.store.data.users[str(kwargs["user"])].mood_repeat_count + 1,
+                        self.store.data.users[user].mood_repeat_count + 1,
                     ),
                 ),
             )
             return
+        slot = int(kwargs["slot"])
+        self.reminders.release(user, slot)
         self._send_reminder(
-            str(kwargs["user"]),
-            int(kwargs["slot"]),
+            user,
+            slot,
             int(kwargs["reminder_index"]),
             final_index=int(
                 kwargs.get(
                     "final_index",
-                    self.store.data.users[str(kwargs["user"])]
-                    .habits[int(kwargs["slot"])]
-                    .repeat_count
-                    + 1,
+                    self.store.data.users[user].habits[slot].repeat_count + 1,
                 ),
             ),
         )
@@ -731,7 +744,7 @@ class HabitTracker(hass.Hass):
             )
         last_index = final_index or config.repeat_count + 1
         next_index = reminder_index + 1
-        now = self.datetime()
+        now = self._aware_now()
         if next_index <= last_index and repeat_fits_before_midnight(
             now,
             config.repeat_interval_minutes,
@@ -781,7 +794,7 @@ class HabitTracker(hass.Hass):
             self.error("Mood reminder notification failed for %s: %s", user, error)
         last_index = final_index or data.mood_repeat_count + 1
         next_index = reminder_index + 1
-        now = self.datetime()
+        now = self._aware_now()
         if next_index <= last_index and repeat_fits_before_midnight(
             now,
             data.mood_repeat_interval_minutes,
@@ -833,7 +846,7 @@ class HabitTracker(hass.Hass):
     ) -> str:
         data = self.store.data.users[user]
         user_config = self._user_config(user)
-        now = self.datetime()
+        now = self._aware_now()
         stats = calculate_streak(
             data.completions.get(config.slot, {}),
             today=now.date(),
@@ -1193,4 +1206,8 @@ def _event_datetime(value: object, now: datetime) -> datetime | None:
         parsed = datetime.fromisoformat(value)
     except ValueError:
         return None
-    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=now.tzinfo)
+    if now.tzinfo is None:
+        return parsed.replace(tzinfo=None) if parsed.tzinfo is not None else parsed
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=now.tzinfo)
+    return parsed.astimezone(now.tzinfo)
