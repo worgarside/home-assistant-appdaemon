@@ -72,7 +72,6 @@ habit_tracker:
       workday_entity: binary_sensor.workday
       activity_entity: sensor.will_s_pixel_6_pro_detected_activity
       steps_entity: sensor.will_s_pixel_6_pro_daily_steps
-      exercise_entity: sensor.joroto_exercise_bike_active_time
       weather_entity: weather.met_office_fulham
       sun_entity: sun.sun
     vic:
@@ -83,7 +82,6 @@ habit_tracker:
       workday_entity: binary_sensor.workday
       activity_entity: sensor.vics_iphone_activity
       steps_entity: sensor.vics_iphone_steps
-      exercise_entity: sensor.joroto_exercise_bike_active_time
       weather_entity: weather.met_office_fulham
       sun_entity: sun.sun
 

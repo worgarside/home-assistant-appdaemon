@@ -54,7 +54,6 @@ REQUIRED_USER_KEYS: Final[tuple[str, ...]] = (
     "workday_entity",
     "activity_entity",
     "steps_entity",
-    "exercise_entity",
     "weather_entity",
     "sun_entity",
 )
@@ -526,10 +525,6 @@ class HabitTracker(hass.Hass):
                 "Steps so far today",
                 self._numeric_state(str(user_config["steps_entity"]), integer=True),
             ),
-            (
-                "Exercise bike active minutes",
-                self._bike_minutes(str(user_config["exercise_entity"])),
-            ),
             ("Weather", self._weather_summary(str(user_config["weather_entity"]))),
             (
                 "Daylight remaining minutes",
@@ -653,12 +648,6 @@ class HabitTracker(hass.Hass):
         except (TypeError, ValueError):
             return ""
         return int(numeric) if integer else numeric
-
-    def _bike_minutes(self, entity_id: str) -> str | float:
-        seconds = self._numeric_state(entity_id)
-        return (
-            "" if not isinstance(seconds, int | float) else round(float(seconds) / 60, 1)
-        )
 
     def _weather_summary(self, entity_id: str) -> str:
         condition = self._state_value(entity_id)

@@ -106,7 +106,7 @@ When a habit's AI-reminder switch is enabled, the app calls the configured
 - Mood and mood note.
 - Broad location category derived from Home Assistant labels.
 - Calendar availability for the next eight hours.
-- Workday, current activity, steps, and exercise-bike time.
+- Workday, current activity, and steps.
 - Weather and remaining daylight.
 - Whether this is the first, repeated, or final reminder.
 
