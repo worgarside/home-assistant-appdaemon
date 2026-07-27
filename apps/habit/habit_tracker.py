@@ -38,6 +38,7 @@ Requirements:
 - Return only the notification message text
 - One or two short sentences maximum
 - Mention the habit name naturally
+- Do not address the recipient by name or with a personal greeting
 - You may mention streak, mood, completion rate, or that this is a repeat reminder
   when that context is useful
 - Use location only when it materially affects whether the habit is feasible right
@@ -48,6 +49,23 @@ Requirements:
 - Use weather and daylight only when they materially affect an outdoor habit
 - Do not name specific places, addresses, or coordinates
 - Do not include markdown, emojis, quotes, or a title"""
+MOOD_AI_INSTRUCTIONS: Final[str] = """Write one short mood check-in reminder notification
+message.
+
+Tone: neutral, positive, and encouraging. Do not be sarcastic, preachy, or overly
+casual. Do not invent facts.
+
+Requirements:
+- Return only the notification message text
+- One or two short sentences maximum
+- Ask the recipient to log how they are feeling today
+- Do not address the recipient by name or with a personal greeting
+- You may mention mood streak or that this is a repeat reminder when useful
+- If the user is in a meeting or has only a short free window, suggest a realistic
+  later time instead of interrupting them
+- Do not name specific places, addresses, or coordinates
+- Do not include markdown, emojis, quotes, or a title"""
+MOOD_FALLBACK_MESSAGE: Final[str] = "Don't forget to log how you're feeling today."
 
 REQUIRED_USER_KEYS: Final[tuple[str, ...]] = (
     "notify_script",
@@ -813,7 +831,7 @@ class HabitTracker(hass.Hass):
                 "script/turn_on",
                 entity_id=user_config["notify_script"],
                 variables={
-                    "title": "Habit Reminder",
+                    "title": config.name,
                     "message": message,
                     "notification_id": f"{user}_habit_{slot}_reminder",
                     "mobile_notification_icon": "mdi:checkbox-marked-circle-outline",
@@ -858,25 +876,9 @@ class HabitTracker(hass.Hass):
             self._clear_mood_pending(user)
             self.store.save()
             return
-        user_config = self._user_config(user)
-        try:
-            self.call_service(
-                "script/turn_on",
-                entity_id=user_config["notify_script"],
-                variables={
-                    "title": "Mood Reminder",
-                    "message": "Don't forget to log how you're feeling today.",
-                    "notification_id": f"{user}_mood_reminder",
-                    "mobile_notification_icon": "mdi:emoticon-outline",
-                    "url": user_config["dashboard_url"],
-                    "actions": "[]",
-                },
-            )
-        except Exception as error:
-            self.error("Mood reminder notification failed for %s: %s", user, error)
+        now = self._aware_now()
         last_index = final_index or data.mood_repeat_count + 1
         next_index = reminder_index + 1
-        now = self._aware_now()
         if next_index <= last_index and repeat_fits_before_midnight(
             now,
             data.mood_repeat_interval_minutes,
@@ -894,36 +896,79 @@ class HabitTracker(hass.Hass):
         self.store.save()
         self._publish_mood_next_reminder(user)
 
+        message = self._ai_mood_message(user, reminder_index) or MOOD_FALLBACK_MESSAGE
+        self.log("Sending mood reminder for %s (attempt %s)", user, reminder_index)
+        self._notify_mood(user, message)
+
+    def _notify_mood(self, user: str, message: str) -> None:
+        user_config = self._user_config(user)
+        try:
+            self.call_service(
+                "script/turn_on",
+                entity_id=user_config["notify_script"],
+                variables={
+                    "title": "Mood",
+                    "message": message,
+                    "notification_id": f"{user}_mood_reminder",
+                    "mobile_notification_icon": "mdi:emoticon-outline",
+                    "url": user_config["dashboard_url"],
+                    "actions": "[]",
+                },
+            )
+        except Exception as error:
+            self.error("Mood reminder notification failed for %s: %s", user, error)
+
     def _ai_message(
         self,
         user: str,
         config: HabitConfig,
         reminder_index: int,
     ) -> str | None:
+        return self._generate_ai_message(
+            task_name=(f"habit reminder {user}_habit_{config.habit_type}_{config.slot}"),
+            instructions=AI_INSTRUCTIONS,
+            context=self._ai_context(user, config, reminder_index),
+            kind="habit",
+        )
+
+    def _ai_mood_message(self, user: str, reminder_index: int) -> str | None:
+        return self._generate_ai_message(
+            task_name=f"mood reminder {user}",
+            instructions=MOOD_AI_INSTRUCTIONS,
+            context=self._ai_mood_context(user, reminder_index),
+            kind="mood",
+        )
+
+    def _generate_ai_message(
+        self,
+        *,
+        task_name: str,
+        instructions: str,
+        context: str,
+        kind: str,
+    ) -> str | None:
         try:
-            context = self._ai_context(user, config, reminder_index)
             # Pass entity_id inside service_data — AppDaemon's top-level entity_id
             # kwarg is moved into target and HA rejects that shape for ai_task.
             response = self.call_service(
                 "ai_task/generate_data",
                 service_data={
                     "entity_id": self.args["ai_task_entity"],
-                    "task_name": (
-                        f"habit reminder {user}_habit_{config.habit_type}_{config.slot}"
-                    ),
-                    "instructions": f"{AI_INSTRUCTIONS}\n\nContext:\n{context}",
+                    "task_name": task_name,
+                    "instructions": f"{instructions}\n\nContext:\n{context}",
                 },
                 return_response=True,
                 hass_timeout=180,
                 timeout=180,
             )
         except Exception as error:
-            self.error("AI habit reminder failed: %s", error)
+            self.error("AI %s reminder failed: %s", kind, error)
             return None
         message = _ai_response_text(response)
         if message is None:
             self.error(
-                "AI habit reminder returned no usable text (response=%r)",
+                "AI %s reminder returned no usable text (response=%r)",
+                kind,
                 response,
             )
         return message
@@ -951,7 +996,6 @@ class HabitTracker(hass.Hass):
             else f"repeat reminder {reminder_index} of {repeat_total}"
         )
         pairs: list[tuple[str, object]] = [
-            ("User", user.title()),
             ("Habit name", config.name),
             ("Habit type", config.habit_type),
             ("Current streak days", stats.streak),
@@ -979,6 +1023,41 @@ class HabitTracker(hass.Hass):
             (
                 "Daylight remaining minutes",
                 self._daylight_minutes(str(user_config["sun_entity"]), now),
+            ),
+            ("Local time", now.strftime("%H:%M")),
+            ("Reminder attempt", attempt),
+        ]
+        return "\n".join(
+            f"- {label}: {value}"
+            for label, value in pairs
+            if value not in INVALID_STATES and value not in {"Not Set", -1}
+        )
+
+    def _ai_mood_context(self, user: str, reminder_index: int) -> str:
+        data = self.store.data.users[user]
+        user_config = self._user_config(user)
+        now = self._aware_now()
+        repeat_total = data.mood_repeat_count + 1
+        attempt = (
+            "first reminder today"
+            if reminder_index == 1
+            else f"final reminder today (attempt {reminder_index})"
+            if reminder_index >= repeat_total
+            else f"repeat reminder {reminder_index} of {repeat_total}"
+        )
+        pairs: list[tuple[str, object]] = [
+            ("Mood today", data.mood_today),
+            (
+                "Mood streak days",
+                calculate_mood_streak(data.mood_history, today=now.date()),
+            ),
+            ("Location category", self._location_category(user_config)),
+            ("Calendar availability", self._calendar_availability(user, now)),
+            (
+                "Workday",
+                "yes"
+                if self.get_state(str(user_config["workday_entity"])) == "on"
+                else "no",
             ),
             ("Local time", now.strftime("%H:%M")),
             ("Reminder attempt", attempt),

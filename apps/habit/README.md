@@ -130,11 +130,13 @@ chains are cleared and incomplete habits are re-seeded for the new day.
 
 ## AI reminders
 
-When a habit's AI-reminder switch is enabled, the app calls the configured
-`ai_task` entity and asks it for a short reminder. Context can include:
+When a habit's AI-reminder switch is enabled, or when a mood reminder fires, the
+app calls the configured `ai_task` entity and asks it for a short reminder.
+Context can include:
 
-- Current streak, completion age, and recent completion rate.
-- Mood and mood note.
+- Current streak, completion age, and recent completion rate (habits).
+- Mood streak and that today's mood is still unset (mood reminders).
+- Mood and mood note (habit reminders).
 - Broad location category derived from Home Assistant labels.
 - Calendar availability for the next eight hours.
 - Workday, current activity, and steps.
