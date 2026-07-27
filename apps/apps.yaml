@@ -113,12 +113,14 @@ monzo_auto_saver:
   truelayer_client_id: !secret truelayer_client_id
   truelayer_client_secret: !secret truelayer_client_secret
   truelayer_reauth_var: var.truelayer_reauth_amex_auto_saver
+  monzo_reauth_var: var.monzo_reauth_auto_saver
 
 monzo_credit_card_pot_manager:
   module: credit_card_pot_manager
   class: CreditCardPotManager
   client_id: !secret monzo_client_id
   client_secret: !secret monzo_client_secret
+  reauth_var: var.monzo_reauth_cc_pot_top_up
 
 # Spotify Dynamic Playlists
 

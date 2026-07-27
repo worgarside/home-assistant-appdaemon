@@ -90,6 +90,7 @@ class AutoSaver(Hass):
         }
 
         self.truelayer_reauth_var = self.args["truelayer_reauth_var"]
+        self.monzo_reauth_var = self.args["monzo_reauth_var"]
 
         self.input_text_client_lookup: dict[str, MonzoClient | TrueLayerClient] = {
             v: k for k, v in self.auth_code_input_text_lookup.items()
@@ -442,9 +443,11 @@ class AutoSaver(Hass):
         self.clear_notifications(client)
 
     def clear_notifications(self, client: MonzoClient | TrueLayerClient) -> None:
-        """Clear the notification and hide any TrueLayer dashboard reauth card."""
+        """Clear the notification and hide any dashboard reauth card."""
         if isinstance(client, TrueLayerClient):
             self.set_truelayer_reauth_status(needs_reauth=False)
+        else:
+            self.set_monzo_reauth_status(needs_reauth=False)
 
         self.call_service(
             "script/turn_on",
@@ -552,6 +555,7 @@ class AutoSaver(Hass):
         else:
             title = "Monzo (auto-saver) Access Token Expired"
             message = "Monzo access token has expired!"
+            self.set_monzo_reauth_status(needs_reauth=True, auth_link=auth_link)
 
         self.call_service(
             "script/turn_on",
@@ -585,6 +589,21 @@ class AutoSaver(Hass):
         self.call_service(
             "var/set",
             entity_id=self.truelayer_reauth_var,
+            value="on" if needs_reauth else "off",
+            force_update=True,
+            attributes={"auth_link": auth_link},
+        )
+
+    def set_monzo_reauth_status(
+        self,
+        *,
+        needs_reauth: bool,
+        auth_link: str = "",
+    ) -> None:
+        """Publish Monzo auto-saver reauth status for the dashboard card."""
+        self.call_service(
+            "var/set",
+            entity_id=self.monzo_reauth_var,
             value="on" if needs_reauth else "off",
             force_update=True,
             attributes={"auth_link": auth_link},
