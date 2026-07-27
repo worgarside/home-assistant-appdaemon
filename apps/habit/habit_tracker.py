@@ -761,20 +761,12 @@ class HabitTracker(hass.Hass):
             self._clear_pending(user, slot)
             self.store.save()
             return
-        # Notify immediately with the fallback so a slow/failed AI call cannot
-        # delay or swallow the reminder. Arm the next fire before waiting on AI,
-        # then upgrade the same notification_id if AI returns text.
-        message = self._fallback_message(config)
-        self.log(
-            "Sending habit reminder for %s slot %s (attempt %s)",
-            user,
-            slot,
-            reminder_index,
-        )
-        self._notify_habit(user, slot, config, message)
+        # Arm the next fire before waiting on AI so a slow model cannot push the
+        # schedule out. Only send one notification: AI text when available,
+        # otherwise the deterministic fallback.
+        now = self._aware_now()
         last_index = final_index or config.repeat_count + 1
         next_index = reminder_index + 1
-        now = self._aware_now()
         if next_index <= last_index and repeat_fits_before_midnight(
             now,
             config.repeat_interval_minutes,
@@ -791,10 +783,17 @@ class HabitTracker(hass.Hass):
             self._clear_pending(user, slot)
         self.store.save()
         self._publish_next_reminder(user, slot)
+
+        message = self._fallback_message(config)
         if config.ai_enabled:
-            ai_message = self._ai_message(user, config, reminder_index)
-            if ai_message and ai_message != message:
-                self._notify_habit(user, slot, config, ai_message)
+            message = self._ai_message(user, config, reminder_index) or message
+        self.log(
+            "Sending habit reminder for %s slot %s (attempt %s)",
+            user,
+            slot,
+            reminder_index,
+        )
+        self._notify_habit(user, slot, config, message)
 
     def _notify_habit(
         self,
