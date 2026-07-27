@@ -39,14 +39,7 @@ Requirements:
 - One or two short sentences maximum
 - Mention the habit name naturally
 - Do not address the recipient by name or with a personal greeting
-- You may mention streak, mood, completion rate, or that this is a repeat reminder
-  when that context is useful
-- Use location only when it materially affects whether the habit is feasible right
-  now. For example, do not encourage doing skincare immediately when the user is at
-  work; still give a useful reminder, such as doing it later or keeping a streak in mind
-- If the user is in a meeting or has only a short free window, suggest a realistic
-  later time instead of interrupting them
-- Use weather and daylight only when they materially affect an outdoor habit
+- Use the provided context only when it changes what a useful reminder would say
 - Do not name specific places, addresses, or coordinates
 - Do not include markdown, emojis, quotes, or a title"""
 MOOD_AI_INSTRUCTIONS: Final[str] = """Write one short mood check-in reminder notification
@@ -60,9 +53,7 @@ Requirements:
 - One or two short sentences maximum
 - Ask the recipient to log how they are feeling today
 - Do not address the recipient by name or with a personal greeting
-- You may mention mood streak or that this is a repeat reminder when useful
-- If the user is in a meeting or has only a short free window, suggest a realistic
-  later time instead of interrupting them
+- Use the provided context only when it changes what a useful reminder would say
 - Do not name specific places, addresses, or coordinates
 - Do not include markdown, emojis, quotes, or a title"""
 MOOD_FALLBACK_MESSAGE: Final[str] = "Don't forget to log how you're feeling today."
