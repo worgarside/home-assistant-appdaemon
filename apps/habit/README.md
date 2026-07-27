@@ -66,9 +66,22 @@ Habit completion history is stored by local calendar date:
 - Countable habits store their daily count.
 - A count greater than zero counts as completion for streak purposes.
 
-With a seven-day minimum, streaks require daily completion. Lower settings allow gaps
-inside a week and continue across consecutive prior weeks that meet the configured
-minimum.
+With a seven-day minimum, streaks require daily completion. Lower settings use a
+**weekly-grace** model that is intentionally different from the legacy SQL streak
+sensors:
+
+- The current/anchor week contributes every calendar day from Monday through the
+  anchor once the anchor day itself is complete (individual gaps earlier in that
+  week do not truncate the count).
+- Each prior week that meets `streak_min_days_per_week` adds a full 7 days, even
+  if some days in that week were missed.
+- The legacy SQL `first_incomplete_day` CTE broke the streak on any individually
+  missed day regardless of week totals, which made weekly grace almost a no-op.
+  The AppDaemon algorithm treats the threshold as real weekly grace instead.
+
+Default configs use `streak_min_days_per_week = 7`, so most habits stay on the
+strict daily path and are unaffected. Numbers can change on cutover only for habits
+that already used a lower threshold.
 
 ## Reminders
 

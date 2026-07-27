@@ -11,32 +11,57 @@ from typing import TYPE_CHECKING, Any
 from .models import StoreData
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 
 class HabitStore:
     """Own a recoverable, atomically-written habit store."""
 
-    def __init__(self, directory: Path, users: tuple[str, ...]) -> None:
+    def __init__(
+        self,
+        directory: Path,
+        users: tuple[str, ...],
+        *,
+        log: Callable[[str], None],
+        error: Callable[[str], None],
+    ) -> None:
         self.directory = directory
         self.path = directory / "store.json"
         self.backup_path = directory / "store.json.backup"
         self.users = users
+        self._log = log
+        self._error = error
         self.data = self._load()
 
     def _load(self) -> StoreData:
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        saw_unreadable = False
         for candidate in (self.path, self.backup_path):
             try:
                 data = self._read(candidate)
             except FileNotFoundError:
                 continue
-            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                saw_unreadable = True
+                self._error(
+                    "Habit store candidate "
+                    f"{candidate} is unreadable ({type(exc).__name__}: {exc}); "
+                    "quarantining",
+                )
                 self._quarantine(candidate)
             else:
                 for user in self.users:
                     data.users.setdefault(user, StoreData.empty((user,)).users[user])
                 return data
+        if saw_unreadable:
+            self._error(
+                "No readable habit store found (primary and backup exhausted); "
+                "starting with an empty store — habit configs and history may "
+                "have been lost",
+            )
+        else:
+            self._log("No habit store found; starting with an empty store")
         return StoreData.empty(self.users)
 
     @staticmethod
@@ -73,10 +98,13 @@ class HabitStore:
 
     def _quarantine(self, path: Path) -> None:
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        destination = path.with_name(f"{path.name}.invalid-{timestamp}")
         try:
-            path.replace(path.with_name(f"{path.name}.invalid-{timestamp}"))
-        except OSError:
+            path.replace(destination)
+        except OSError as exc:
+            self._error(f"Failed to quarantine habit store {path}: {exc}")
             return
+        self._error(f"Quarantined unreadable habit store at {destination}")
 
     def append_completion_log(
         self,

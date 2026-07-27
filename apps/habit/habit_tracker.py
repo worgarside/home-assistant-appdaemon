@@ -89,6 +89,8 @@ class HabitTracker(hass.Hass):
                 ),
             ),
             self.users,
+            log=self.log,
+            error=self.error,
         )
         self._startup_retired: dict[str, tuple[int, ...]] = {}
         for user in self.users:
