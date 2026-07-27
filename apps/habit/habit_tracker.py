@@ -106,8 +106,13 @@ class HabitTracker(hass.Hass):
         )
         for user in self.users:
             self.run_daily(self._midnight_rollover, time(), user=user)
-        self._restore_reminders()
+        # Defer arming so initialize can finish before run_in(0) callbacks save.
+        self.run_in(self._restore_reminders_callback, 1)
         self.log("Habit tracker initialized for %s", ", ".join(self.users))
+
+    def _restore_reminders_callback(self, _kwargs: dict[str, Any]) -> None:
+        self._restore_reminders()
+        self.store.save()
 
     def terminate(self) -> None:
         """Persist, mark unavailable, and disconnect cleanly."""
@@ -820,13 +825,17 @@ class HabitTracker(hass.Hass):
     ) -> str | None:
         try:
             context = self._ai_context(user, config, reminder_index)
+            # Pass entity_id inside service_data — AppDaemon's top-level entity_id
+            # kwarg is moved into target and HA rejects that shape for ai_task.
             response = self.call_service(
                 "ai_task/generate_data",
-                entity_id=self.args["ai_task_entity"],
-                task_name=(
-                    f"habit reminder {user}_habit_{config.habit_type}_{config.slot}"
-                ),
-                instructions=f"{AI_INSTRUCTIONS}\n\nContext:\n{context}",
+                service_data={
+                    "entity_id": self.args["ai_task_entity"],
+                    "task_name": (
+                        f"habit reminder {user}_habit_{config.habit_type}_{config.slot}"
+                    ),
+                    "instructions": f"{AI_INSTRUCTIONS}\n\nContext:\n{context}",
+                },
                 return_response=True,
             )
         except Exception as error:
@@ -836,6 +845,11 @@ class HabitTracker(hass.Hass):
             generated = response.get("data")
             if isinstance(generated, str) and generated.strip():
                 return generated.strip()
+            nested = response.get("response")
+            if isinstance(nested, dict):
+                generated = nested.get("data")
+                if isinstance(generated, str) and generated.strip():
+                    return generated.strip()
         return None
 
     def _ai_context(

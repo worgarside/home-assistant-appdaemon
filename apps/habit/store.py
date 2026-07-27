@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import threading
+import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -32,6 +34,7 @@ class HabitStore:
         self.users = users
         self._log = log
         self._error = error
+        self._lock = threading.Lock()
         self.data = self._load()
 
     def _load(self) -> StoreData:
@@ -75,26 +78,28 @@ class HabitStore:
 
     def save(self) -> None:
         """Atomically persist current data and retain the previous valid version."""
-        payload = json.dumps(
-            self.data.to_dict(),
-            indent=2,
-            sort_keys=True,
-        )
-        temporary = self.directory / f".store-{os.getpid()}.tmp"
-        temporary.write_text(f"{payload}\n", encoding="utf-8")
-        temporary.chmod(0o600)
-        with temporary.open("r+", encoding="utf-8") as file:
-            file.flush()
-            os.fsync(file.fileno())
-        if self.path.exists():
-            shutil.copy2(self.path, self.backup_path)
-        temporary.replace(self.path)
-        self.path.chmod(0o600)
-        directory_fd = os.open(self.directory, os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        with self._lock:
+            self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            payload = json.dumps(
+                self.data.to_dict(),
+                indent=2,
+                sort_keys=True,
+            )
+            temporary = self.directory / f".store-{os.getpid()}-{uuid.uuid4().hex}.tmp"
+            temporary.write_text(f"{payload}\n", encoding="utf-8")
+            temporary.chmod(0o600)
+            with temporary.open("r+", encoding="utf-8") as file:
+                file.flush()
+                os.fsync(file.fileno())
+            if self.path.exists():
+                shutil.copy2(self.path, self.backup_path)
+            temporary.replace(self.path)
+            self.path.chmod(0o600)
+            directory_fd = os.open(self.directory, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
 
     def _quarantine(self, path: Path) -> None:
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
