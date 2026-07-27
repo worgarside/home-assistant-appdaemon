@@ -56,7 +56,7 @@ SENSORS: Final[tuple[SensorSpec, ...]] = (
         name="Included usage used",
         unit_of_measurement="USD",
         device_class="monetary",
-        state_class="total",
+        state_class="total_increasing",
     ),
     SensorSpec(
         key="included_usage_limit",
@@ -125,7 +125,7 @@ SENSORS: Final[tuple[SensorSpec, ...]] = (
         object_id="cursor_usage_by_model",
         name="Usage by model",
         unit_of_measurement="¢",
-        state_class="total",
+        state_class="total_increasing",
         icon="mdi:chart-donut",
         attributes_key="usage_by_model_attributes",
     ),
@@ -161,6 +161,7 @@ class CursorUsageMonitor(hass.Hass):
         self.token_path = Path(self.args.get("token_path", DEFAULT_TOKEN_PATH))
         self.http = Session()
         self._latest_state: dict[str, Any] = {}
+        self._device_model = "Cursor"
         self.mqtt_client = None
 
         self._configure_mqtt()
@@ -231,6 +232,11 @@ class CursorUsageMonitor(hass.Hass):
             return
 
         self._latest_state.update(state)
+        attributes = state.get("usage_status_attributes")
+        membership_type = (
+            attributes.get("membership_type") if isinstance(attributes, dict) else None
+        )
+        self._maybe_update_device_model(membership_type)
         self._publish_state()
         self.log(
             "Published Cursor usage: %.2f%% of included usage",
@@ -577,12 +583,22 @@ class CursorUsageMonitor(hass.Hass):
             config_topic = f"{self.mqtt_discovery_prefix}/sensor/{object_id}/config"
             self._publish_mqtt(config_topic, "")
 
+    def _maybe_update_device_model(self, membership_type: Any) -> None:
+        """Refresh discovery if the Cursor plan/model from the API changed."""
+        if not isinstance(membership_type, str) or not membership_type.strip():
+            return
+        model = membership_type.replace("_", " ").strip().title()
+        if model == self._device_model:
+            return
+        self._device_model = model
+        self._publish_mqtt_discovery()
+
     def _device_block(self) -> dict[str, Any]:
         """Return shared Home Assistant device metadata."""
         return {
             "identifiers": [self.mqtt_device_id],
             "manufacturer": "Cursor",
-            "model": "Ultra",
+            "model": self._device_model,
             "name": self.mqtt_device_name,
         }
 
