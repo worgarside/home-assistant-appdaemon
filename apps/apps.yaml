@@ -45,7 +45,7 @@ habit_tracker:
     - will
     - vic
   store_directory: /homeassistant/.appdaemon/habits
-  reminders_enabled: false
+  reminders_enabled: true
   ai_task_entity: ai_task.habit_reminder_ai
 
   mqtt_host: !secret appdaemon_mqtt_host
