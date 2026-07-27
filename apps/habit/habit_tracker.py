@@ -15,12 +15,13 @@ from .models import (
     MOOD_OPTIONS,
     HabitConfig,
     HabitType,
+    PendingReminder,
     calculate_mood_streak,
     calculate_streak,
     normalize_spare_slot,
 )
 from .mqtt import HabitMqtt, MqttSettings
-from .reminders import ReminderManager
+from .reminders import ReminderManager, repeat_fits_before_midnight
 from .store import HabitStore
 
 INVALID_STATES: Final[frozenset[object]] = frozenset(
@@ -104,7 +105,7 @@ class HabitTracker(hass.Hass):
         )
         for user in self.users:
             self.run_daily(self._midnight_rollover, time(), user=user)
-        self._schedule_all()
+        self._restore_reminders()
         self.log("Habit tracker initialized for %s", ", ".join(self.users))
 
     def terminate(self) -> None:
@@ -177,6 +178,7 @@ class HabitTracker(hass.Hass):
             for config in self.store.data.users[user].habits.values():
                 self.mqtt.publish_slot(user, config)
                 self._publish_habit_state(user, config.slot)
+                self._publish_next_reminder(user, config.slot)
             self._publish_mood_state(user)
 
     def _handle_mqtt_command(self, topic: str, payload: str) -> None:
@@ -205,6 +207,7 @@ class HabitTracker(hass.Hass):
         config = data.habits[slot]
         old_name = config.name
         old_type = config.habit_type
+        old_reminder_time = config.reminder_time
         if key == "name":
             new_name = payload.strip()
             if len(new_name) > MAX_NAME_LENGTH:
@@ -212,11 +215,15 @@ class HabitTracker(hass.Hass):
             config.name = new_name
             if old_name.strip() and not new_name:
                 data.completions.pop(slot, None)
+                self._clear_pending(user, slot)
         elif key == "type":
             config.habit_type = HabitType(payload)
         elif key == "reminder_time":
             time.fromisoformat(payload)
             config.reminder_time = payload
+        elif key == "next_reminder":
+            self._override_next_reminder(user, slot, payload)
+            return
         elif key == "repeat_count":
             config.repeat_count = _bounded_int(payload, 0, 100)
         elif key == "repeat_interval":
@@ -240,19 +247,30 @@ class HabitTracker(hass.Hass):
             raise KeyError(key)
         config.__post_init__()
         if config.name != old_name or config.habit_type is not old_type:
-            self.reminders.cancel_repeats(user, slot)
-        self._reschedule(user, config)
+            self._clear_pending(user, slot)
+        if (
+            config.reminder_time != old_reminder_time
+            and config.configured
+            and (pending := data.pending_reminders.get(slot)) is not None
+            and pending.next_index == 1
+        ):
+            self._seed_next_reminder(user, config, force=True)
+        elif config.configured and slot not in data.pending_reminders:
+            self._seed_next_reminder(user, config)
         added_spare, retired = self._normalize_user_slots(user)
         self.store.save()
         if self.mqtt is not None:
             if slot in data.habits:
                 self.mqtt.publish_slot(user, config)
                 self._publish_habit_state(user, slot)
+                self._publish_next_reminder(user, slot)
             if added_spare is not None and added_spare != slot:
                 spare = data.habits[added_spare]
                 self.mqtt.publish_slot(user, spare)
                 self._publish_habit_state(user, added_spare)
+                self._publish_next_reminder(user, added_spare)
             for retired_slot in retired:
+                self._clear_pending(user, retired_slot)
                 self.mqtt.retire_slot(user, retired_slot)
 
     def _update_mood(self, user: str, key: str, payload: str) -> None:
@@ -280,10 +298,16 @@ class HabitTracker(hass.Hass):
             values[day] = count
         else:
             values.pop(day, None)
-        self.reminders.cancel_repeats(user, slot)
+        data = self.store.data.users[user]
+        config = data.habits[slot]
+        if count:
+            self._clear_pending(user, slot)
+        elif config.configured:
+            self._seed_next_reminder(user, config, force=True)
         self.store.append_completion_log(user, slot, day, count)
         self.store.save()
         self._publish_habit_state(user, slot)
+        self._publish_next_reminder(user, slot)
 
     def _publish_habit_state(self, user: str, slot: int) -> None:
         if self.mqtt is None:
@@ -350,18 +374,134 @@ class HabitTracker(hass.Hass):
             ),
         )
 
-    def _schedule_all(self) -> None:
+    def _restore_reminders(self) -> None:
         if not self.reminders_enabled:
             return
         for user, data in self.store.data.users.items():
-            for config in data.habits.values():
-                self._reschedule(user, config)
+            changed = False
+            for slot, config in list(data.habits.items()):
+                pending = data.pending_reminders.get(slot)
+                if not config.configured or self._is_complete_today(user, slot):
+                    if pending is not None:
+                        self._clear_pending(user, slot)
+                        changed = True
+                    continue
+                if pending is None:
+                    self._seed_next_reminder(user, config)
+                    changed = True
+                    continue
+                self._arm_pending(user, slot, pending)
+            if changed:
+                self.store.save()
+            for slot in data.habits:
+                self._publish_next_reminder(user, slot)
 
-    def _reschedule(self, user: str, config: HabitConfig) -> None:
-        if self.reminders_enabled and config.configured:
-            self.reminders.schedule_daily(user, config.slot, config.reminder_time)
+    def _seed_next_reminder(
+        self,
+        user: str,
+        config: HabitConfig,
+        *,
+        force: bool = False,
+    ) -> None:
+        if not self.reminders_enabled or not config.configured:
+            return
+        if self._is_complete_today(user, config.slot):
+            self._clear_pending(user, config.slot)
+            return
+        data = self.store.data.users[user]
+        if not force and config.slot in data.pending_reminders:
+            return
+        now = self.datetime()
+        fire_at = datetime.combine(
+            now.date(),
+            time.fromisoformat(config.reminder_time),
+            tzinfo=now.tzinfo,
+        )
+        fire_at = max(fire_at, now)
+        pending = PendingReminder(
+            fire_at=fire_at.isoformat(),
+            next_index=1,
+            final_index=config.repeat_count + 1,
+        )
+        data.pending_reminders[config.slot] = pending
+        self._arm_pending(user, config.slot, pending)
+        self._publish_next_reminder(user, config.slot)
+
+    def _override_next_reminder(self, user: str, slot: int, payload: str) -> None:
+        data = self.store.data.users[user]
+        config = data.habits[slot]
+        if not payload.strip() or payload.strip() == "None":
+            self._clear_pending(user, slot)
+            self.store.save()
+            self._publish_next_reminder(user, slot)
+            return
+        if not config.configured:
+            raise ValueError("habit is not configured")
+        fire_at = self._parse_fire_at(payload)
+        pending = data.pending_reminders.get(slot)
+        if pending is None:
+            pending = PendingReminder(
+                fire_at=fire_at.isoformat(),
+                next_index=1,
+                final_index=config.repeat_count + 1,
+            )
         else:
-            self.reminders.remove(user, config.slot)
+            pending = PendingReminder(
+                fire_at=fire_at.isoformat(),
+                next_index=pending.next_index,
+                final_index=pending.final_index,
+            )
+        data.pending_reminders[slot] = pending
+        self._arm_pending(user, slot, pending)
+        self.store.save()
+        self._publish_next_reminder(user, slot)
+
+    def _arm_pending(self, user: str, slot: int, pending: PendingReminder) -> None:
+        if not self.reminders_enabled:
+            self.reminders.cancel(user, slot)
+            return
+        now = self.datetime()
+        fire_at = self._parse_fire_at(pending.fire_at)
+        self.reminders.schedule_at(
+            user,
+            slot,
+            fire_at=fire_at,
+            reminder_index=pending.next_index,
+            final_index=pending.final_index,
+            now=now,
+        )
+
+    def _clear_pending(self, user: str, slot: int) -> None:
+        self.reminders.cancel(user, slot)
+        self.store.data.users[user].pending_reminders.pop(slot, None)
+        self._publish_next_reminder(user, slot)
+
+    def _publish_next_reminder(self, user: str, slot: int) -> None:
+        if self.mqtt is None:
+            return
+        pending = self.store.data.users[user].pending_reminders.get(slot)
+        payload = pending.fire_at if pending is not None else "None"
+        self.mqtt.publish(
+            f"{self.mqtt.topic(f'{user}/{slot}')}/next_reminder/state",
+            payload,
+        )
+
+    def _is_complete_today(self, user: str, slot: int) -> bool:
+        return (
+            self.store.data.users[user]
+            .completions.get(slot, {})
+            .get(self.datetime().date().isoformat(), 0)
+            > 0
+        )
+
+    def _parse_fire_at(self, value: str) -> datetime:
+        fire_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        now = self.datetime()
+        if fire_at.tzinfo is None and now.tzinfo is not None:
+            return fire_at.replace(tzinfo=now.tzinfo)
+        if fire_at.tzinfo is not None and now.tzinfo is None:
+            return fire_at.replace(tzinfo=None)
+        return fire_at
 
     def _reminder_callback(self, kwargs: dict[str, Any]) -> None:
         self._send_reminder(
@@ -392,15 +532,12 @@ class HabitTracker(hass.Hass):
         data = self.store.data.users[user]
         config = data.habits.get(slot)
         if config is None or not config.configured:
+            self._clear_pending(user, slot)
+            self.store.save()
             return
-        if (
-            data.completions.get(slot, {}).get(
-                self.datetime().date().isoformat(),
-                0,
-            )
-            > 0
-        ):
-            self.reminders.cancel_repeats(user, slot)
+        if self._is_complete_today(user, slot):
+            self._clear_pending(user, slot)
+            self.store.save()
             return
         message = self._fallback_message(config)
         if config.ai_enabled:
@@ -443,14 +580,24 @@ class HabitTracker(hass.Hass):
                 error,
             )
         last_index = final_index or config.repeat_count + 1
-        self.reminders.schedule_next_repeat(
-            user,
-            slot,
-            next_index=reminder_index + 1,
-            final_index=last_index,
-            interval_minutes=config.repeat_interval_minutes,
-            now=self.datetime(),
-        )
+        next_index = reminder_index + 1
+        now = self.datetime()
+        if next_index <= last_index and repeat_fits_before_midnight(
+            now,
+            config.repeat_interval_minutes,
+        ):
+            fire_at = now + timedelta(minutes=config.repeat_interval_minutes)
+            pending = PendingReminder(
+                fire_at=fire_at.isoformat(),
+                next_index=next_index,
+                final_index=last_index,
+            )
+            data.pending_reminders[slot] = pending
+            self._arm_pending(user, slot, pending)
+        else:
+            self._clear_pending(user, slot)
+        self.store.save()
+        self._publish_next_reminder(user, slot)
 
     def _ai_message(
         self,
@@ -713,11 +860,16 @@ class HabitTracker(hass.Hass):
             data.mood_history[yesterday_key] = data.mood_today
         data.mood_today = "Not Set"
         data.mood_note = ""
+        for slot in list(data.habits):
+            self._clear_pending(user, slot)
+        for config in data.habits.values():
+            if config.configured:
+                self._seed_next_reminder(user, config, force=True)
         self.store.save()
         self._publish_mood_state(user)
         for slot in data.habits:
-            self.reminders.cancel_repeats(user, slot)
             self._publish_habit_state(user, slot)
+            self._publish_next_reminder(user, slot)
 
     def _normalize_user_slots(
         self,

@@ -1,4 +1,4 @@
-"""Reminder scheduling with cancellable repeat chains."""
+"""Reminder scheduling from absolute next-fire datetimes."""
 
 from __future__ import annotations
 
@@ -9,16 +9,7 @@ from typing import Any, Protocol
 class Scheduler(Protocol):
     """AppDaemon timer methods used by the reminder manager."""
 
-    def run_daily(
-        self,
-        callback: Any,
-        start: time,
-        **kwargs: Any,
-    ) -> str:
-        """Register a daily callback."""
-        ...
-
-    def run_in(self, callback: Any, delay: int, **kwargs: Any) -> str:
+    def run_in(self, callback: Any, delay: float, **kwargs: Any) -> str:
         """Register a delayed callback."""
         ...
 
@@ -28,72 +19,48 @@ class Scheduler(Protocol):
 
 
 class ReminderManager:
-    """Manage daily schedules and per-habit repeat timers."""
+    """Manage one cancellable absolute-time timer per habit slot."""
 
     def __init__(self, scheduler: Scheduler, callback: Any) -> None:
         self._scheduler = scheduler
         self._callback = callback
-        self._daily: dict[tuple[str, int], str] = {}
-        self._repeats: dict[tuple[str, int], str] = {}
+        self._timers: dict[tuple[str, int], str] = {}
 
-    def schedule_daily(self, user: str, slot: int, reminder_time: str) -> None:
-        """Replace the daily schedule for a habit."""
-        key = (user, slot)
-        self._cancel_handle(self._daily.pop(key, None))
-        parsed = time.fromisoformat(reminder_time)
-        self._daily[key] = self._scheduler.run_daily(
-            self._callback,
-            parsed,
-            user=user,
-            slot=slot,
-            reminder_index=1,
-        )
-
-    def schedule_next_repeat(
+    def schedule_at(
         self,
         user: str,
         slot: int,
         *,
-        next_index: int,
+        fire_at: datetime,
+        reminder_index: int,
         final_index: int,
-        interval_minutes: int,
         now: datetime,
-    ) -> bool:
-        """Schedule only the next repeat when it fits before the cutoff."""
-        self.cancel_repeats(user, slot)
-        if next_index > final_index or not repeat_fits_before_midnight(
-            now,
-            interval_minutes,
-        ):
-            return False
-        key = (user, slot)
-        self._repeats[key] = self._scheduler.run_in(
+    ) -> None:
+        """Replace the pending timer for a habit with an absolute fire time."""
+        self.cancel(user, slot)
+        delay = max(0, (fire_at - now).total_seconds())
+        self._timers[(user, slot)] = self._scheduler.run_in(
             self._callback,
-            interval_minutes * 60,
+            delay,
             user=user,
             slot=slot,
-            reminder_index=next_index,
+            reminder_index=reminder_index,
             final_index=final_index,
         )
-        return True
 
-    def cancel_repeats(self, user: str, slot: int) -> None:
-        """Cancel pending repeats after completion."""
-        self._cancel_handle(self._repeats.pop((user, slot), None))
+    def cancel(self, user: str, slot: int) -> None:
+        """Cancel the pending timer for a slot."""
+        self._cancel_handle(self._timers.pop((user, slot), None))
 
     def remove(self, user: str, slot: int) -> None:
-        """Remove all schedules for a retired slot."""
-        self.cancel_repeats(user, slot)
-        self._cancel_handle(self._daily.pop((user, slot), None))
+        """Remove schedules for a retired slot."""
+        self.cancel(user, slot)
 
     def cancel_all(self) -> None:
         """Cancel all managed timers."""
-        for handle in self._daily.values():
+        for handle in self._timers.values():
             self._cancel_handle(handle)
-        for handle in self._repeats.values():
-            self._cancel_handle(handle)
-        self._daily.clear()
-        self._repeats.clear()
+        self._timers.clear()
 
     def _cancel_handle(self, handle: str | None) -> None:
         if handle is not None:

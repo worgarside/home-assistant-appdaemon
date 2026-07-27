@@ -123,6 +123,13 @@ class HabitMqtt:
             state_spec,
             EntitySpec("time", "reminder_time", f"{display} reminder time", {}),
             EntitySpec(
+                "datetime",
+                "next_reminder",
+                f"{display} next reminder",
+                {"icon": "mdi:bell-ring-outline"},
+                configurable=False,
+            ),
+            EntitySpec(
                 "number",
                 "repeat_count",
                 f"{display} repeat count",
@@ -328,6 +335,7 @@ def _slot_entity_keys() -> tuple[tuple[str, str], ...]:
         ("switch", "state"),
         ("number", "count"),
         ("time", "reminder_time"),
+        ("datetime", "next_reminder"),
         ("number", "repeat_count"),
         ("number", "repeat_interval"),
         ("number", "streak_min_days"),

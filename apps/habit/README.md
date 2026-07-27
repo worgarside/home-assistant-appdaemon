@@ -16,7 +16,7 @@ change.
 - `models.py` defines the persisted schema and calculates habit and mood streaks.
 - `mqtt.py` publishes Home Assistant MQTT discovery, state, attributes, and
   availability.
-- `reminders.py` owns daily schedules and cancellable repeat-reminder timers.
+- `reminders.py` owns absolute next-fire timers per habit slot.
 - `store.py` writes the versioned JSON store atomically and keeps a backup plus an
   append-only completion audit log.
 
@@ -30,7 +30,8 @@ Each slot exposes:
 - A text entity for the habit name.
 - A select entity for `binary` or `countable` tracking.
 - A switch for a binary habit, or a number for a countable habit.
-- A reminder-time entity.
+- A reminder-time entity (daily template for the first fire).
+- A next-reminder datetime entity (editable absolute fire time).
 - Repeat count and interval controls.
 - A minimum-days-per-week streak control.
 - An AI-reminder switch.
@@ -84,18 +85,37 @@ that already used a lower threshold.
 
 ## Reminders
 
-Configured habits receive a daily AppDaemon schedule. A reminder is skipped if the
-habit is already complete for the current day.
+Each configured habit has a durable `datetime.<user>_habit_<slot>_next_reminder`
+entity. That datetime is the editable source of truth for when the next notification
+fires. The `time.<user>_habit_<slot>_reminder_time` entity is only the recurring daily
+template used to seed `next_reminder`.
 
-Repeat reminders are scheduled one at a time and are cancelled when the habit is
-completed, renamed, deleted, or changes type. A repeat is not scheduled if it would
-run too close to midnight.
+Attempt metadata (`fire_at`, reminder index, final index) is persisted in
+`store.json` under `pending_reminders`, so AppDaemon restarts can restore the same
+chain. Editing `next_reminder` in Home Assistant updates the stored fire time, keeps
+the current indices, cancels the in-memory timer, and reschedules. Past times fire
+almost immediately.
+
+Seeding happens on midnight rollover and when a habit becomes configured: if the habit
+is incomplete and has no pending reminder, `next_reminder` is set to today at
+`reminder_time` (or now if that time has already passed), with `next_index=1`. Changing
+`reminder_time` only retargets a pending **first** reminder for today; mid-chain
+repeats are left alone.
+
+When a reminder fires, the app skips completed habits, sends the notification, then
+either advances `next_reminder` by the repeat interval (while under the midnight
+cutoff) or clears the pending chain. Completion, rename, delete, type change, or end
+of chain clears the store entry, publishes an empty/`None` datetime state, and cancels
+the timer.
+
+`reminders_enabled: false` still no-ops sends and does not arm timers.
 
 Notifications are sent through the user's configured `script.notify_*` script. Their
 action button either marks a binary habit complete or increments a countable habit.
 
 At local midnight, current values reset while historical completions remain available
-for streak calculations. Mood and mood notes reset at the same time.
+for streak calculations. Mood and mood notes reset at the same time. Pending reminder
+chains are cleared and incomplete habits are re-seeded for the new day.
 
 ## AI reminders
 

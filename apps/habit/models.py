@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from typing import Any, Final, Self
 
@@ -101,11 +101,46 @@ class HabitConfig:
 
 
 @dataclass(slots=True)
+class PendingReminder:
+    """Durable next-fire metadata for one habit slot."""
+
+    fire_at: str
+    next_index: int
+    final_index: int
+
+    def __post_init__(self) -> None:
+        """Reject malformed reminder state."""
+        datetime.fromisoformat(self.fire_at)
+        if self.next_index < 1:
+            raise ValueError("next_index must be positive")
+        if self.final_index < 1:
+            raise ValueError("final_index must be positive")
+        if self.next_index > self.final_index:
+            raise ValueError("next_index cannot exceed final_index")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize pending reminder state."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> Self:
+        """Parse and validate pending reminder state."""
+        pending = cls(
+            fire_at=_string(value, "fire_at"),
+            next_index=_integer(value, "next_index"),
+            final_index=_integer(value, "final_index"),
+        )
+        pending.__post_init__()
+        return pending
+
+
+@dataclass(slots=True)
 class UserData:
     """All disk-backed state for one configured user."""
 
     habits: dict[int, HabitConfig] = field(default_factory=dict)
     completions: dict[int, dict[str, int]] = field(default_factory=dict)
+    pending_reminders: dict[int, PendingReminder] = field(default_factory=dict)
     mood_history: dict[str, str] = field(default_factory=dict)
     mood_today: str = "Not Set"
     mood_note: str = ""
@@ -118,6 +153,10 @@ class UserData:
             },
             "completions": {
                 str(slot): values for slot, values in self.completions.items()
+            },
+            "pending_reminders": {
+                str(slot): pending.to_dict()
+                for slot, pending in self.pending_reminders.items()
             },
             "mood_history": self.mood_history,
             "mood_today": self.mood_today,
@@ -139,6 +178,10 @@ class UserData:
                 _date_string(day): _nonnegative_integer(count)
                 for day, count in _dict(entries).items()
             }
+        pending_reminders = {
+            int(slot): PendingReminder.from_dict(_dict(item))
+            for slot, item in _mapping(value, "pending_reminders").items()
+        }
         mood_history = {
             _date_string(day): _mood(mood)
             for day, mood in _mapping(value, "mood_history").items()
@@ -146,6 +189,7 @@ class UserData:
         return cls(
             habits=habits,
             completions=completions,
+            pending_reminders=pending_reminders,
             mood_history=mood_history,
             mood_today=_mood(value.get("mood_today", "Not Set")),
             mood_note=_string(value, "mood_note", ""),
@@ -260,6 +304,7 @@ def normalize_spare_slot(data: UserData) -> tuple[int | None, tuple[int, ...]]:
     for slot in retired:
         del data.habits[slot]
         data.completions.pop(slot, None)
+        data.pending_reminders.pop(slot, None)
     return added_spare, retired
 
 
