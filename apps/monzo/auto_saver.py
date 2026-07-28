@@ -432,6 +432,10 @@ class AutoSaver(Hass):
                 if self.initialize_monzo(send_notification=False):
                     break
                 sleep(10)
+            else:
+                self.error(
+                    "Monzo re-initialization failed after retries; leaving reauth state set",
+                )
         else:
             self.initialize_amex()
 
@@ -439,8 +443,6 @@ class AutoSaver(Hass):
             entity_id=self.auth_code_input_text_lookup[client],
             value="",
         )
-
-        self.clear_notifications(client)
 
     def clear_notifications(self, client: MonzoClient | TrueLayerClient) -> None:
         """Clear the notification and hide any dashboard reauth card."""

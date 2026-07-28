@@ -349,13 +349,15 @@ class CreditCardPotManager(Hass):
             if self.initialize_entities(send_notification=False):
                 break
             sleep(10)
+        else:
+            self.error(
+                "Monzo re-initialization failed after retries; leaving reauth state set",
+            )
 
         self.set_textvalue(
             entity_id=self.auth_code_input_text,
             value="",
         )
-
-        self.clear_notifications()
 
     def clear_notifications(self) -> None:
         """Clear the notification and hide the dashboard reauth card."""
