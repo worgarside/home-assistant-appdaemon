@@ -254,6 +254,7 @@ class HabitTracker(hass.Hass):
                 self._publish_habit_state(user, config.slot)
                 self._publish_next_reminder(user, config.slot)
             self._publish_mood_state(user)
+            self._publish_habit_type_counts(user)
 
     def _handle_mqtt_command(self, topic: str, payload: str) -> None:
         if self.mqtt is None:
@@ -377,6 +378,7 @@ class HabitTracker(hass.Hass):
             for retired_slot in retired:
                 self._clear_pending(user, retired_slot)
                 self.mqtt.retire_slot(user, retired_slot)
+            self._publish_habit_type_counts(user)
 
     def _update_mood(self, user: str, key: str, payload: str) -> None:
         data = self.store.data.users[user]
@@ -553,6 +555,27 @@ class HabitTracker(hass.Hass):
             str(data.mood_repeat_interval_minutes),
         )
         self._publish_mood_next_reminder(user)
+
+    def _publish_habit_type_counts(self, user: str) -> None:
+        if self.mqtt is None:
+            return
+        binary = 0
+        countable = 0
+        for config in self.store.data.users[user].habits.values():
+            if not config.configured:
+                continue
+            if config.habit_type is HabitType.BINARY:
+                binary += 1
+            elif config.habit_type is HabitType.COUNTABLE:
+                countable += 1
+        self.mqtt.publish(
+            self.mqtt.topic(f"{user}/habits_binary_count/state"),
+            str(binary),
+        )
+        self.mqtt.publish(
+            self.mqtt.topic(f"{user}/habits_countable_count/state"),
+            str(countable),
+        )
 
     def _restore_reminders(self) -> None:
         if not self.reminders_enabled:

@@ -51,6 +51,8 @@ Each user also receives:
 - `switch.<user>_mood_reminders` (enable/disable mood reminder notifications)
 - `datetime.<user>_mood_next_reminder` (editable absolute fire time)
 - `number.<user>_mood_repeat_count` and `number.<user>_mood_repeat_interval`
+- `sensor.<user>_habits_binary_count` and `sensor.<user>_habits_countable_count`
+  (configured inventory counts by habit type; spare/unnamed slots are excluded)
 
 ## Persistence
 
