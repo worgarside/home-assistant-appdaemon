@@ -2,6 +2,33 @@
 
 <!-- version list -->
 
+## v0.25.0 (2026-07-28)
+
+### Bug Fixes
+
+- Correct "as of" date parsing to address inaccurate data display
+  ([#270](https://github.com/worgarside/home-assistant-appdaemon/pull/270),
+  [`8dfaaed`](https://github.com/worgarside/home-assistant-appdaemon/commit/8dfaaed31f5c30a0abe68b8ee39b50bf9bc1bee1))
+
+### Features
+
+- Add reauthorization handling for Monzo
+  ([#269](https://github.com/worgarside/home-assistant-appdaemon/pull/269),
+  [`4ea1e03`](https://github.com/worgarside/home-assistant-appdaemon/commit/4ea1e03a7eec156f008096fdc1583fe9d4ca3fa1))
+
+- Add SLC timestamp sensors
+  ([#268](https://github.com/worgarside/home-assistant-appdaemon/pull/268),
+  [`2095c91`](https://github.com/worgarside/home-assistant-appdaemon/commit/2095c916d180e003a45640dd7e358e39acb5ffd1))
+
+- **cursor**: Add Cursor usage monitoring and MQTT integration
+  ([#266](https://github.com/worgarside/home-assistant-appdaemon/pull/266),
+  [`fc4b99e`](https://github.com/worgarside/home-assistant-appdaemon/commit/fc4b99e7fd8a5ac194326299700da31dd7d845b5))
+
+- **habit**: Add habit and mood tracking to Home Assistant
+  ([#267](https://github.com/worgarside/home-assistant-appdaemon/pull/267),
+  [`f1ca3cc`](https://github.com/worgarside/home-assistant-appdaemon/commit/f1ca3ccc0b9bda87b2b1ea4718b837dfce4a64cc))
+
+
 ## v0.24.1 (2026-07-26)
 
 ### Bug Fixes
