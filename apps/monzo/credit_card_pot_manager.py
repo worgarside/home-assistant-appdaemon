@@ -33,6 +33,7 @@ class CreditCardPotManager(Hass):
         self.notification_id = "monzo_credit_card_pot_access_token_expired"
         self.auth_code_input_text = "input_text.monzo_auth_token_cc_pot_top_up"
         self.redirect_uri = "https://console.truelayer.com/redirect-page"
+        self.reauth_var = self.args["reauth_var"]
 
         self.client = MonzoClient(
             client_id=self.args["client_id"],
@@ -235,6 +236,8 @@ class CreditCardPotManager(Hass):
 
         self.log("Listen event registered for %s", self.credit_card_pot.name)
 
+        self.clear_notifications()
+
         return True
 
     def send_auth_link_notification(self) -> None:
@@ -257,6 +260,7 @@ class CreditCardPotManager(Hass):
         auth_link = self.client.auth_link_base + "?" + parse.urlencode(auth_link_params)
 
         self.log(auth_link)
+        self.set_reauth_status(needs_reauth=True, auth_link=auth_link)
 
         self.call_service(
             "script/turn_on",
@@ -278,6 +282,16 @@ class CreditCardPotManager(Hass):
                     ],
                 ),
             },
+        )
+
+    def set_reauth_status(self, *, needs_reauth: bool, auth_link: str = "") -> None:
+        """Publish Monzo CC pot reauth status for the dashboard card."""
+        self.call_service(
+            "var/set",
+            entity_id=self.reauth_var,
+            value="on" if needs_reauth else "off",
+            force_update=True,
+            attributes={"auth_link": auth_link},
         )
 
     def consume_auth_token(
@@ -335,16 +349,19 @@ class CreditCardPotManager(Hass):
             if self.initialize_entities(send_notification=False):
                 break
             sleep(10)
+        else:
+            self.error(
+                "Monzo re-initialization failed after retries; leaving reauth state set",
+            )
 
         self.set_textvalue(
             entity_id=self.auth_code_input_text,
             value="",
         )
 
-        self.clear_notifications()
-
     def clear_notifications(self) -> None:
-        """Clear the notification."""
+        """Clear the notification and hide the dashboard reauth card."""
+        self.set_reauth_status(needs_reauth=False)
         self.call_service(
             "script/turn_on",
             entity_id="script.notify_will",
