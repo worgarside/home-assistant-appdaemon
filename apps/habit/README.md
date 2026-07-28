@@ -139,9 +139,8 @@ Context can include:
 - Mood and mood note (habit reminders).
 - Broad location category derived from Home Assistant labels.
 - Calendar availability for the next eight hours.
-- Workday, current activity, and steps.
-- Weather and remaining daylight.
-- Whether this is the first, repeated, or final reminder.
+- Workday, current activity, and weather (habits).
+- Local date.
 
 Unavailable context is omitted. If AI generation fails or returns an empty response,
 the app sends a deterministic fallback reminder.

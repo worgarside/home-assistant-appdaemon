@@ -39,7 +39,8 @@ Requirements:
 - One or two short sentences maximum
 - Mention the habit name naturally
 - Do not address the recipient by name or with a personal greeting
-- Use the provided context only when it changes what a useful reminder would say
+- Use provided context only when it is directly relevant to this habit and changes
+  what a useful reminder would say; otherwise ignore it
 - Do not name specific places, addresses, or coordinates
 - Do not include markdown, emojis, quotes, or a title"""
 MOOD_AI_INSTRUCTIONS: Final[str] = """Write one short mood check-in reminder notification
@@ -53,7 +54,8 @@ Requirements:
 - One or two short sentences maximum
 - Ask the recipient to log how they are feeling today
 - Do not address the recipient by name or with a personal greeting
-- Use the provided context only when it changes what a useful reminder would say
+- Use provided context only when it is directly relevant to logging mood and changes
+  what a useful reminder would say; otherwise ignore it
 - Do not name specific places, addresses, or coordinates
 - Do not include markdown, emojis, quotes, or a title"""
 MOOD_FALLBACK_MESSAGE: Final[str] = "Don't forget to log how you're feeling today."
@@ -65,9 +67,7 @@ REQUIRED_USER_KEYS: Final[tuple[str, ...]] = (
     "at_work_entity",
     "workday_entity",
     "activity_entity",
-    "steps_entity",
     "weather_entity",
-    "sun_entity",
 )
 SLOT_TOPIC_PARTS: Final[int] = 4
 ACTION_PARTS: Final[int] = 3
@@ -795,7 +795,7 @@ class HabitTracker(hass.Hass):
 
         message = self._fallback_message(config)
         if config.ai_enabled:
-            message = self._ai_message(user, config, reminder_index) or message
+            message = self._ai_message(user, config) or message
         self.log(
             "Sending habit reminder for %s slot %s (attempt %s)",
             user,
@@ -887,7 +887,7 @@ class HabitTracker(hass.Hass):
         self.store.save()
         self._publish_mood_next_reminder(user)
 
-        message = self._ai_mood_message(user, reminder_index) or MOOD_FALLBACK_MESSAGE
+        message = self._ai_mood_message(user) or MOOD_FALLBACK_MESSAGE
         self.log("Sending mood reminder for %s (attempt %s)", user, reminder_index)
         self._notify_mood(user, message)
 
@@ -909,24 +909,19 @@ class HabitTracker(hass.Hass):
         except Exception as error:
             self.error("Mood reminder notification failed for %s: %s", user, error)
 
-    def _ai_message(
-        self,
-        user: str,
-        config: HabitConfig,
-        reminder_index: int,
-    ) -> str | None:
+    def _ai_message(self, user: str, config: HabitConfig) -> str | None:
         return self._generate_ai_message(
             task_name=(f"habit reminder {user}_habit_{config.habit_type}_{config.slot}"),
             instructions=AI_INSTRUCTIONS,
-            context=self._ai_context(user, config, reminder_index),
+            context=self._ai_context(user, config),
             kind="habit",
         )
 
-    def _ai_mood_message(self, user: str, reminder_index: int) -> str | None:
+    def _ai_mood_message(self, user: str) -> str | None:
         return self._generate_ai_message(
             task_name=f"mood reminder {user}",
             instructions=MOOD_AI_INSTRUCTIONS,
-            context=self._ai_mood_context(user, reminder_index),
+            context=self._ai_mood_context(user),
             kind="mood",
         )
 
@@ -964,12 +959,7 @@ class HabitTracker(hass.Hass):
             )
         return message
 
-    def _ai_context(
-        self,
-        user: str,
-        config: HabitConfig,
-        reminder_index: int,
-    ) -> str:
+    def _ai_context(self, user: str, config: HabitConfig) -> str:
         data = self.store.data.users[user]
         user_config = self._user_config(user)
         now = self._aware_now()
@@ -977,14 +967,6 @@ class HabitTracker(hass.Hass):
             data.completions.get(config.slot, {}),
             today=now.date(),
             min_days_per_week=config.streak_min_days_per_week,
-        )
-        repeat_total = config.repeat_count + 1
-        attempt = (
-            "first reminder today"
-            if reminder_index == 1
-            else f"final reminder today (attempt {reminder_index})"
-            if reminder_index >= repeat_total
-            else f"repeat reminder {reminder_index} of {repeat_total}"
         )
         pairs: list[tuple[str, object]] = [
             ("Habit name", config.name),
@@ -1006,17 +988,8 @@ class HabitTracker(hass.Hass):
                 "Current physical activity",
                 self._state_value(str(user_config["activity_entity"])),
             ),
-            (
-                "Steps so far today",
-                self._numeric_state(str(user_config["steps_entity"]), integer=True),
-            ),
             ("Weather", self._weather_summary(str(user_config["weather_entity"]))),
-            (
-                "Daylight remaining minutes",
-                self._daylight_minutes(str(user_config["sun_entity"]), now),
-            ),
             ("Local date", _local_date_label(now)),
-            ("Reminder attempt", attempt),
         ]
         return "\n".join(
             f"- {label}: {value}"
@@ -1024,18 +997,10 @@ class HabitTracker(hass.Hass):
             if value not in INVALID_STATES and value not in {"Not Set", -1}
         )
 
-    def _ai_mood_context(self, user: str, reminder_index: int) -> str:
+    def _ai_mood_context(self, user: str) -> str:
         data = self.store.data.users[user]
         user_config = self._user_config(user)
         now = self._aware_now()
-        repeat_total = data.mood_repeat_count + 1
-        attempt = (
-            "first reminder today"
-            if reminder_index == 1
-            else f"final reminder today (attempt {reminder_index})"
-            if reminder_index >= repeat_total
-            else f"repeat reminder {reminder_index} of {repeat_total}"
-        )
         pairs: list[tuple[str, object]] = [
             ("Mood today", data.mood_today),
             (
@@ -1051,7 +1016,6 @@ class HabitTracker(hass.Hass):
                 else "no",
             ),
             ("Local date", _local_date_label(now)),
-            ("Reminder attempt", attempt),
         ]
         return "\n".join(
             f"- {label}: {value}"
@@ -1157,34 +1121,12 @@ class HabitTracker(hass.Hass):
             return ""
         return value
 
-    def _numeric_state(
-        self,
-        entity_id: str,
-        *,
-        integer: bool = False,
-    ) -> str | int | float:
-        value = self._state_value(entity_id)
-        try:
-            numeric = float(value)
-        except (TypeError, ValueError):
-            return ""
-        return int(numeric) if integer else numeric
-
     def _weather_summary(self, entity_id: str) -> str:
         condition = self._state_value(entity_id)
         temperature = self.get_state(entity_id, attribute="temperature")
-        if condition == "" or temperature in INVALID_STATES:
+        if not condition or temperature in INVALID_STATES:
             return ""
         return f"{condition}, {temperature}°C"
-
-    def _daylight_minutes(self, entity_id: str, now: datetime) -> int:
-        if self.get_state(entity_id) != "above_horizon":
-            return 0
-        parsed = _event_datetime(
-            self.get_state(entity_id, attribute="next_setting"),
-            now,
-        )
-        return 0 if parsed is None else max(0, round((parsed - now).total_seconds() / 60))
 
     @staticmethod
     def _fallback_message(config: HabitConfig) -> str:
