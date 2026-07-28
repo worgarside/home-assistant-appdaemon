@@ -154,6 +154,30 @@ class HabitMqtt:
                 {"min": 1, "max": 7, "step": 1, "mode": "box"},
             ),
             EntitySpec("switch", "ai", f"{display} AI reminders", {}),
+            EntitySpec(
+                "select",
+                "completion_mode",
+                f"{display} completion mode",
+                {"options": list(_completion_modes())},
+            ),
+            EntitySpec(
+                "text",
+                "completion_template",
+                f"{display} completion template",
+                {"max": _max_template_length(), "icon": "mdi:code-braces"},
+            ),
+            EntitySpec(
+                "number",
+                "completion_duration",
+                f"{display} completion duration",
+                {
+                    "min": 1,
+                    "max": 1440,
+                    "step": 1,
+                    "mode": "box",
+                    "unit_of_measurement": "min",
+                },
+            ),
             EntitySpec("text", "icon_on", f"{display} completed icon", {}),
             EntitySpec("text", "icon_active", f"{display} active icon", {}),
             EntitySpec("text", "icon_off", f"{display} incomplete icon", {}),
@@ -207,6 +231,9 @@ class HabitMqtt:
             "icon_active": config.icon_active,
             "icon_off": config.icon_off,
             "icon_zero": config.icon_zero,
+            "completion_mode": config.completion_mode,
+            "completion_template": config.completion_template,
+            "completion_duration": config.completion_duration_minutes,
         }
         for key, value in values.items():
             self.publish(f"{prefix}/{key}/state", str(value))
@@ -383,6 +410,9 @@ def _slot_entity_keys() -> tuple[tuple[str, str], ...]:
         ("text", "icon_active"),
         ("text", "icon_off"),
         ("text", "icon_zero"),
+        ("select", "completion_mode"),
+        ("text", "completion_template"),
+        ("number", "completion_duration"),
         ("sensor", "streak"),
     )
 
@@ -391,3 +421,15 @@ def _mood_options() -> tuple[str, ...]:
     from .models import MOOD_OPTIONS  # noqa: PLC0415
 
     return MOOD_OPTIONS
+
+
+def _completion_modes() -> tuple[str, ...]:
+    from .models import CompletionMode  # noqa: PLC0415
+
+    return tuple(str(mode) for mode in CompletionMode)
+
+
+def _max_template_length() -> int:
+    from .models import MAX_TEMPLATE_LENGTH  # noqa: PLC0415
+
+    return MAX_TEMPLATE_LENGTH

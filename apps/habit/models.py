@@ -10,11 +10,13 @@ from typing import TYPE_CHECKING, Any, Final, Self
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-SCHEMA_VERSION: Final[int] = 1
+SCHEMA_VERSION: Final[int] = 2
 MIN_SCHEMA_VERSION: Final[int] = 1
 MAX_NAME_LENGTH: Final[int] = 255
+MAX_TEMPLATE_LENGTH: Final[int] = 255
 MAX_REPEAT_COUNT: Final[int] = 100
 MAX_REPEAT_INTERVAL: Final[int] = 1440
+MAX_DURATION_MINUTES: Final[int] = 1440
 MAX_DAYS_PER_WEEK: Final[int] = 7
 MAX_STREAK_DAYS: Final[int] = 366
 MOOD_OPTIONS: Final[tuple[str, ...]] = (
@@ -50,6 +52,25 @@ class HabitType(StrEnum):
     COUNTABLE = "countable"
 
 
+class CompletionMode(StrEnum):
+    """How a habit slot decides it is complete for the day."""
+
+    MANUAL = "manual"
+    INSTANT = "instant"
+    CONTINUOUS = "continuous"
+    SUMMED = "summed"
+
+    @property
+    def is_event_driven(self) -> bool:
+        """Return whether the mode evaluates a template."""
+        return self is not CompletionMode.MANUAL
+
+    @property
+    def is_duration_based(self) -> bool:
+        """Return whether the mode accumulates truthy time before completing."""
+        return self in {CompletionMode.CONTINUOUS, CompletionMode.SUMMED}
+
+
 @dataclass(slots=True)
 class HabitConfig:
     """Persistent configuration for one stable numbered habit slot."""
@@ -66,6 +87,9 @@ class HabitConfig:
     icon_active: str = "mdi:counter"
     icon_off: str = "mdi:circle-outline"
     icon_zero: str = "mdi:counter"
+    completion_mode: CompletionMode = CompletionMode.MANUAL
+    completion_template: str = ""
+    completion_duration_minutes: int = 30
 
     def __post_init__(self) -> None:
         """Reject malformed persisted or MQTT-provided configuration."""
@@ -83,6 +107,25 @@ class HabitConfig:
             time.fromisoformat(self.reminder_time)
         except ValueError as error:
             raise ValueError("reminder_time must use HH:MM:SS") from error
+        self._validate_completion()
+
+    def _validate_completion(self) -> None:
+        """Reject inconsistent event-driven completion settings."""
+        if len(self.completion_template) > MAX_TEMPLATE_LENGTH:
+            # Home Assistant states cap at 255 characters, so a longer template
+            # could never round-trip through the text entity.
+            raise ValueError("completion_template is too long")
+        if not 1 <= self.completion_duration_minutes <= MAX_DURATION_MINUTES:
+            raise ValueError(
+                "completion_duration_minutes must be between 1 and 1440",
+            )
+        if self.completion_mode.is_event_driven and not self.completion_template.strip():
+            raise ValueError("completion_template is required for event-driven modes")
+        if (
+            self.completion_mode.is_duration_based
+            and self.habit_type is not HabitType.BINARY
+        ):
+            raise ValueError("duration completion modes require a binary habit")
 
     @property
     def configured(self) -> bool:
@@ -117,6 +160,15 @@ class HabitConfig:
             icon_active=_string(value, "icon_active", "mdi:counter"),
             icon_off=_string(value, "icon_off", "mdi:circle-outline"),
             icon_zero=_string(value, "icon_zero", "mdi:counter"),
+            completion_mode=CompletionMode(
+                _string(value, "completion_mode", CompletionMode.MANUAL),
+            ),
+            completion_template=_string(value, "completion_template", ""),
+            completion_duration_minutes=_integer(
+                value,
+                "completion_duration_minutes",
+                30,
+            ),
         )
 
 
@@ -155,12 +207,54 @@ class PendingReminder:
 
 
 @dataclass(slots=True)
+class TemplateProgress:
+    """Durable truthy-time accounting for one event-driven habit slot."""
+
+    day: str
+    accumulated_seconds: int = 0
+    truthy_since: str | None = None
+    suppressed_day: str | None = None
+
+    def __post_init__(self) -> None:
+        """Reject malformed progress state."""
+        date.fromisoformat(self.day)
+        if self.accumulated_seconds < 0:
+            raise ValueError("accumulated_seconds cannot be negative")
+        if self.truthy_since is not None:
+            datetime.fromisoformat(self.truthy_since)
+        if self.suppressed_day is not None:
+            date.fromisoformat(self.suppressed_day)
+
+    @property
+    def is_truthy(self) -> bool:
+        """Return whether the template was truthy at the last observation."""
+        return self.truthy_since is not None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize progress state."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> Self:
+        """Parse and validate progress state."""
+        progress = cls(
+            day=_string(value, "day"),
+            accumulated_seconds=_integer(value, "accumulated_seconds", 0),
+            truthy_since=_optional_string(value, "truthy_since"),
+            suppressed_day=_optional_string(value, "suppressed_day"),
+        )
+        progress.__post_init__()
+        return progress
+
+
+@dataclass(slots=True)
 class UserData:
     """All disk-backed state for one configured user."""
 
     habits: dict[int, HabitConfig] = field(default_factory=dict)
     completions: dict[int, dict[str, int]] = field(default_factory=dict)
     pending_reminders: dict[int, PendingReminder] = field(default_factory=dict)
+    template_progress: dict[int, TemplateProgress] = field(default_factory=dict)
     mood_history: dict[str, str] = field(default_factory=dict)
     mood_today: str = "Not Set"
     mood_note: str = ""
@@ -196,6 +290,10 @@ class UserData:
                 str(slot): pending.to_dict()
                 for slot, pending in self.pending_reminders.items()
             },
+            "template_progress": {
+                str(slot): progress.to_dict()
+                for slot, progress in self.template_progress.items()
+            },
             "mood_history": self.mood_history,
             "mood_today": self.mood_today,
             "mood_note": self.mood_note,
@@ -229,6 +327,10 @@ class UserData:
             int(slot): PendingReminder.from_dict(_dict(item))
             for slot, item in _mapping(value, "pending_reminders").items()
         }
+        template_progress = {
+            int(slot): TemplateProgress.from_dict(_dict(item))
+            for slot, item in _mapping(value, "template_progress").items()
+        }
         mood_history = {
             _date_string(day): _mood(mood)
             for day, mood in _mapping(value, "mood_history").items()
@@ -243,6 +345,7 @@ class UserData:
             habits=habits,
             completions=completions,
             pending_reminders=pending_reminders,
+            template_progress=template_progress,
             mood_history=mood_history,
             mood_today=_mood(value.get("mood_today", "Not Set")),
             mood_note=_string(value, "mood_note", ""),
@@ -262,10 +365,21 @@ class UserData:
         )
 
 
+def _migrate_1_to_2(value: dict[str, Any]) -> dict[str, Any]:
+    """Add event-driven completion fields.
+
+    Purely additive: every new field is defaulted by ``HabitConfig.from_dict``
+    and ``UserData.from_dict``, so a v1 payload needs no rewriting.
+    """
+    return value
+
+
 # Upgrade steps keyed by source version; entry N migrates a payload from
 # version N to version N+1. Register a step in the same change that bumps
 # SCHEMA_VERSION.
-SCHEMA_MIGRATIONS: Final[dict[int, Callable[[dict[str, Any]], dict[str, Any]]]] = {}
+SCHEMA_MIGRATIONS: Final[dict[int, Callable[[dict[str, Any]], dict[str, Any]]]] = {
+    1: _migrate_1_to_2,
+}
 
 
 def migrate_store_payload(
@@ -399,6 +513,7 @@ def normalize_spare_slot(data: UserData) -> tuple[int | None, tuple[int, ...]]:
         del data.habits[slot]
         data.completions.pop(slot, None)
         data.pending_reminders.pop(slot, None)
+        data.template_progress.pop(slot, None)
     return added_spare, retired
 
 
@@ -459,6 +574,15 @@ def _string(
     item = value.get(key, default)
     if not isinstance(item, str):
         raise TypeError(f"{key} must be a string")
+    return item
+
+
+def _optional_string(value: dict[str, Any], key: str) -> str | None:
+    item = value.get(key)
+    if item is None:
+        return None
+    if not isinstance(item, str):
+        raise TypeError(f"{key} must be a string or null")
     return item
 
 

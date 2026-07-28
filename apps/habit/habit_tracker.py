@@ -11,8 +11,11 @@ from typing import Any, Final, cast
 import appdaemon.plugins.hass.hassapi as hass
 
 from .models import (
+    MAX_DURATION_MINUTES,
     MAX_NAME_LENGTH,
+    MAX_TEMPLATE_LENGTH,
     MOOD_OPTIONS,
+    CompletionMode,
     HabitConfig,
     HabitType,
     PendingReminder,
@@ -231,6 +234,10 @@ class HabitTracker(hass.Hass):
         old_name = config.name
         old_type = config.habit_type
         old_reminder_time = config.reminder_time
+        # Fields are mutated in place, but cross-field rules are only checked
+        # afterwards. Keep a snapshot so a rejected command cannot leave the
+        # in-memory config in a state a later save would persist.
+        snapshot = config.to_dict()
         if key == "name":
             new_name = payload.strip()
             if len(new_name) > MAX_NAME_LENGTH:
@@ -260,6 +267,19 @@ class HabitTracker(hass.Hass):
             if len(icon) > MAX_NAME_LENGTH:
                 raise ValueError("habit icon is too long")
             setattr(config, key, icon)
+        elif key == "completion_mode":
+            config.completion_mode = CompletionMode(payload.strip())
+        elif key == "completion_template":
+            template = payload.strip()
+            if len(template) > MAX_TEMPLATE_LENGTH:
+                raise ValueError("completion template is too long")
+            config.completion_template = template
+        elif key == "completion_duration":
+            config.completion_duration_minutes = _bounded_int(
+                payload,
+                1,
+                MAX_DURATION_MINUTES,
+            )
         elif key == "state":
             self._set_completion(user, slot, 1 if _mqtt_bool(payload) else 0)
             return
@@ -268,7 +288,12 @@ class HabitTracker(hass.Hass):
             return
         else:
             raise KeyError(key)
-        config.__post_init__()
+        try:
+            config.__post_init__()
+        except ValueError:
+            for field_name, previous in snapshot.items():
+                setattr(config, field_name, previous)
+            raise
         if config.name != old_name or config.habit_type is not old_type:
             self._clear_pending(user, slot)
         if (
