@@ -343,9 +343,10 @@ class HabitTracker(hass.Hass):
             self._rebuild_template_listeners(user, slot)
             self._schedule_evaluation(user, slot)
         added_spare, retired = self._normalize_user_slots(user)
+        config = data.habits.get(slot)
         self.store.save()
         if self.mqtt is not None:
-            if slot in data.habits:
+            if config is not None:
                 self.mqtt.publish_slot(user, config)
                 self._publish_habit_state(user, slot)
                 self._publish_next_reminder(user, slot)

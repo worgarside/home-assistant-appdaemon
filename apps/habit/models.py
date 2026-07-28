@@ -502,6 +502,12 @@ def normalize_spare_slot(data: UserData) -> tuple[int | None, tuple[int, ...]]:
     added_spare: int | None = None
     if empty_slots:
         spare_slot = empty_slots[0]
+        # An empty slot may be a deleted habit. Reset it so the next habit does
+        # not inherit its old completion mode, template, icons, or reminders.
+        data.habits[spare_slot] = HabitConfig(slot=spare_slot)
+        data.completions.pop(spare_slot, None)
+        data.pending_reminders.pop(spare_slot, None)
+        data.template_progress.pop(spare_slot, None)
     else:
         spare_slot = 1
         while spare_slot in data.habits:
