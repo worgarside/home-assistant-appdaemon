@@ -140,7 +140,7 @@ Context can include:
 - Broad location category derived from Home Assistant labels.
 - Calendar availability for the next eight hours.
 - Workday, current activity, and weather (habits).
-- Local date.
+- Soft local time context (weekday, month, and clock time — not a full date).
 
 Unavailable context is omitted. If AI generation fails or returns an empty response,
 the app sends a deterministic fallback reminder.

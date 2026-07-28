@@ -893,8 +893,8 @@ class HabitTracker(hass.Hass):
             self.log("Habit template completed %s slot %s", user, slot)
             # _set_completion persists and republishes.
             self._set_completion(user, slot, 1)
-            return
-        self.store.save()
+        else:
+            self.store.save()
 
     def _is_complete_today(self, user: str, slot: int) -> bool:
         return (
@@ -1192,7 +1192,7 @@ class HabitTracker(hass.Hass):
                 self._state_value(str(user_config["activity_entity"])),
             ),
             ("Weather", self._weather_summary(str(user_config["weather_entity"]))),
-            ("Local date", _local_date_label(now)),
+            ("Now", _local_now_label(now)),
         ]
         return "\n".join(
             f"- {label}: {value}"
@@ -1218,7 +1218,7 @@ class HabitTracker(hass.Hass):
                 if self.get_state(str(user_config["workday_entity"])) == "on"
                 else "no",
             ),
-            ("Local date", _local_date_label(now)),
+            ("Now", _local_now_label(now)),
         ]
         return "\n".join(
             f"- {label}: {value}"
@@ -1508,14 +1508,12 @@ def _mqtt_bool(payload: str) -> bool:
     raise ValueError("expected an on/off value")
 
 
-def _local_date_label(value: datetime) -> str:
-    day = value.day
-    suffix = (
-        "th"
-        if 11 <= day % 100 <= 13  # noqa: PLR2004
-        else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")  # codespell:ignore nd
+def _local_now_label(value: datetime) -> str:
+    """Compact day/month/time for AI context without a calendar date."""
+    return (
+        f"It's a {value.strftime('%A')} in {value.strftime('%B')} "
+        f"and it's {value.strftime('%H:%M')}"
     )
-    return f"{value.strftime('%A')}, {day}{suffix} {value.strftime('%B %Y')}"
 
 
 def _service_result(response: object) -> dict[str, Any] | None:

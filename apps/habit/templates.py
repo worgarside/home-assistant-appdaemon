@@ -57,19 +57,15 @@ def coerce_truthy(value: object) -> bool | None:
         return value
     if isinstance(value, int | float):
         return value > 0
-    if value is None:
-        return False
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in TRUTHY_STRINGS:
-            return True
-        if normalized in FALSY_STRINGS:
-            return False
-        try:
-            return float(normalized) > 0
-        except ValueError:
-            return None
-    return None
+    if not isinstance(value, str):
+        return False if value is None else None
+    normalized = value.strip().lower()
+    if normalized in TRUTHY_STRINGS | FALSY_STRINGS:
+        return normalized in TRUTHY_STRINGS
+    try:
+        return float(normalized) > 0
+    except ValueError:
+        return None
 
 
 class TemplateScheduler(Protocol):
