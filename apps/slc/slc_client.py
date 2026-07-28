@@ -219,9 +219,11 @@ def _parse_percent(text: str | None) -> float | None:
 
 
 def _parse_as_of_date(text: str | None) -> date | None:
-    """Parse the portal "as of" date from interest-rate text.
+    """Parse the portal "as of" date from balance/overview text.
 
     Accepts formats such as ``as of 26 July 2026`` and ``as of 01/01/2026``.
+    The live portal exposes this on ``asOfBalanceDateId-1``, not the interest
+    rate element (``interestAsOfDateId-1``), which is rate-only.
 
     Args:
         text: Text that may contain an "as of" date phrase.
@@ -266,7 +268,8 @@ def parse_overview(html: str) -> LoanSummary:
     balance = _parse_money(_element_text_by_id(html, "balanceId_1"))
     interest_text = _element_text_by_id(html, "interestAsOfDateId-1")
     interest_rate = _parse_percent(interest_text)
-    as_of_date = _parse_as_of_date(interest_text)
+    # Balance "as of" lives on asOfBalanceDateId-1; interestAsOfDateId-1 is rate-only.
+    as_of_date = _parse_as_of_date(_element_text_by_id(html, "asOfBalanceDateId-1"))
     year_text = _element_text_by_id(html, "academicYearSummaryId-1")
     current_year = None
     if year_text:
