@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v0.26.0 (2026-07-28)
+
+### Refactoring
+
+- Update job scheduling trigger to 'immediate' for all apps
+  ([#271](https://github.com/worgarside/home-assistant-appdaemon/pull/271),
+  [`d05f18c`](https://github.com/worgarside/home-assistant-appdaemon/commit/d05f18ce022958da85504843a924f2b75c8803b5))
+
+
 ## v0.25.0 (2026-07-28)
 
 ### Bug Fixes
