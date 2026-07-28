@@ -34,7 +34,7 @@ class Updater(Hass):
             "input_text.ad_get_latest_release",
         )
 
-        self.run_every(self.update_variables, "now", 2 * 60)
+        self.run_every(self.update_variables, "immediate", 2 * 60)
 
     def update_variables(self, _: dict[str, Any] | None = None) -> None:
         """Update the variables with the current AppDaemon ref and branch."""

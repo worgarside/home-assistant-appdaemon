@@ -166,7 +166,7 @@ class CursorUsageMonitor(hass.Hass):
 
         self._configure_mqtt()
         self.listen_event(self.receive_session_token, "cursor_session_token")
-        self.run_every(self.poll_cursor, "now", self.poll_interval)
+        self.run_every(self.poll_cursor, "immediate", self.poll_interval)
         self.log("Initialized Cursor usage polling every %s seconds", self.poll_interval)
 
     def terminate(self) -> None:
