@@ -89,19 +89,22 @@ class TemplateScheduler(Protocol):
 
 
 class TemplateWatcher:
-    """Own per-slot state subscriptions and one debounced evaluation timer."""
+    """Own per-slot state subscriptions, evaluation timers, and duration timers."""
 
     def __init__(
         self,
         scheduler: TemplateScheduler,
         on_change: Any,
         on_evaluate: Any,
+        on_duration: Any,
     ) -> None:
         self._scheduler = scheduler
         self._on_change = on_change
         self._on_evaluate = on_evaluate
+        self._on_duration = on_duration
         self._listeners: dict[tuple[str, int], tuple[Any, ...]] = {}
         self._pending: dict[tuple[str, int], str] = {}
+        self._durations: dict[tuple[str, int], str] = {}
 
     def watch(self, user: str, slot: int, entities: Iterable[str]) -> tuple[str, ...]:
         """Replace the subscriptions for a slot and return what is watched."""
@@ -141,14 +144,37 @@ class TemplateWatcher:
         """Drop an evaluation handle that has already fired."""
         self._pending.pop((user, slot), None)
 
+    def arm_duration(self, user: str, slot: int, delay: float) -> None:
+        """Replace the duration timer for a slot."""
+        self.cancel_duration(user, slot)
+        self._durations[(user, slot)] = self._scheduler.run_in(
+            self._on_duration,
+            delay,
+            user=user,
+            slot=slot,
+        )
+
+    def cancel_duration(self, user: str, slot: int) -> None:
+        """Cancel the duration timer for a slot."""
+        handle = self._durations.pop((user, slot), None)
+        if handle is not None:
+            self._scheduler.cancel_timer(handle, silent=True)
+
+    def release_duration(self, user: str, slot: int) -> None:
+        """Drop a duration handle that has already fired."""
+        self._durations.pop((user, slot), None)
+
     def remove(self, user: str, slot: int) -> None:
         """Forget a retired slot entirely."""
         self.cancel_scheduled(user, slot)
+        self.cancel_duration(user, slot)
         self.unwatch(user, slot)
 
     def cancel_all(self) -> None:
-        """Cancel every subscription and pending evaluation."""
+        """Cancel every subscription and pending timer."""
         for user, slot in list(self._pending):
             self.cancel_scheduled(user, slot)
+        for user, slot in list(self._durations):
+            self.cancel_duration(user, slot)
         for user, slot in list(self._listeners):
             self.unwatch(user, slot)

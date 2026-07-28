@@ -135,8 +135,14 @@ class HabitTracker(hass.Hass):
             self,
             self._template_dependency_changed,
             self._template_evaluation_callback,
+            self._duration_elapsed_callback,
         )
         self._watched_entities: dict[tuple[str, int], tuple[str, ...]] = {}
+        self._template_errors: dict[tuple[str, int], str | None] = {}
+        self._published_template_attributes: dict[
+            tuple[str, int],
+            dict[str, object],
+        ] = {}
         self._configure_mqtt()
         self.listen_event(
             self._handle_notification_action,
@@ -159,6 +165,13 @@ class HabitTracker(hass.Hass):
             for slot, config in data.habits.items():
                 self._rebuild_template_listeners(user, slot)
                 if config.configured and config.completion_mode.is_event_driven:
+                    if (
+                        config.completion_mode.is_duration_based
+                        and (progress := data.template_progress.get(slot)) is not None
+                    ):
+                        # Banked summed time is trusted, but an unobserved
+                        # in-flight interval across restart is not.
+                        progress.truthy_since = None
                     self._schedule_evaluation(user, slot)
 
     def terminate(self) -> None:
@@ -438,6 +451,7 @@ class HabitTracker(hass.Hass):
         elif config.configured:
             self._seed_next_reminder(user, config, force=True)
         if config.completion_mode.is_event_driven:
+            self.templates.cancel_duration(user, slot)
             progress = self._template_progress(user, slot, day)
             progress.truthy_since = None
             progress.accumulated_seconds = 0
@@ -458,6 +472,7 @@ class HabitTracker(hass.Hass):
         today = self.datetime().date()
         today_count = data.completions.get(slot, {}).get(today.isoformat(), 0)
         prefix = self.mqtt.topic(f"{user}/{slot}")
+        template_attributes = self._template_attributes(user, slot)
         self.mqtt.publish(f"{prefix}/state/state", "ON" if today_count else "OFF")
         self.mqtt.publish(f"{prefix}/count/state", str(today_count))
         stats = calculate_streak(
@@ -497,10 +512,10 @@ class HabitTracker(hass.Hass):
             f"{prefix}/name/attributes",
             {
                 **self._slot_attributes(config),
-                "completion_mode": config.completion_mode,
-                "watched_entities": list(self._watched_entities.get((user, slot), ())),
+                **template_attributes,
             },
         )
+        self._published_template_attributes[(user, slot)] = template_attributes
 
     def _publish_mood_state(self, user: str) -> None:
         if self.mqtt is None:
@@ -777,6 +792,7 @@ class HabitTracker(hass.Hass):
 
     def _rebuild_template_listeners(self, user: str, slot: int) -> None:
         """Re-subscribe a slot to the entities its template actually references."""
+        self.templates.cancel_duration(user, slot)
         config = self.store.data.users[user].habits.get(slot)
         if (
             config is None
@@ -785,6 +801,7 @@ class HabitTracker(hass.Hass):
         ):
             self.templates.remove(user, slot)
             self._watched_entities.pop((user, slot), None)
+            self._template_errors.pop((user, slot), None)
             return
         candidates = extract_candidate_entities(config.completion_template)
         # The pattern cannot distinguish an entity from an attribute access, so
@@ -826,6 +843,13 @@ class HabitTracker(hass.Hass):
         self.templates.release(user, slot)
         self._evaluate_template(user, slot)
 
+    def _duration_elapsed_callback(self, kwargs: dict[str, Any]) -> None:
+        """Re-evaluate a slot when its required truthy duration has elapsed."""
+        user = str(kwargs["user"])
+        slot = int(kwargs["slot"])
+        self.templates.release_duration(user, slot)
+        self._evaluate_template(user, slot)
+
     def _template_progress(
         self,
         user: str,
@@ -842,10 +866,12 @@ class HabitTracker(hass.Hass):
 
     def _render_truthy(self, user: str, slot: int, template: str) -> bool:
         """Render a template, treating any failure as falsy."""
+        key = (user, slot)
         try:
             rendered = self.render_template(template)
         except Exception as error:
             self.error("Habit template failed for %s slot %s: %s", user, slot, error)
+            self._template_errors[key] = str(error)
             return False
         truthy = coerce_truthy(rendered)
         if truthy is None:
@@ -855,7 +881,9 @@ class HabitTracker(hass.Hass):
                 slot,
                 rendered,
             )
+            self._template_errors[key] = f"unusable template result: {rendered!r}"
             return False
+        self._template_errors[key] = None
         return truthy
 
     def _evaluate_template(self, user: str, slot: int) -> None:
@@ -873,29 +901,148 @@ class HabitTracker(hass.Hass):
         if not config.completion_template.strip():
             return
         today = self.datetime().date().isoformat()
+        previous = data.template_progress.get(slot)
+        progress_before = (
+            previous.to_dict() if previous is not None and previous.day == today else None
+        )
         progress = self._template_progress(user, slot, today)
         if progress.suppressed_day == today:
+            self.templates.cancel_duration(user, slot)
+            self._save_template_progress_if_changed(progress, progress_before)
+            self._publish_template_attributes_if_changed(user, slot)
             return
         if self._is_complete_today(user, slot):
+            self.templates.cancel_duration(user, slot)
             progress.truthy_since = None
             progress.accumulated_seconds = 0
-            self.store.save()
+            self._save_template_progress_if_changed(progress, progress_before)
+            self._publish_template_attributes_if_changed(user, slot)
             return
-        was_truthy = progress.is_truthy
+        now = self._aware_now()
         now_truthy = self._render_truthy(user, slot, config.completion_template)
-        progress.truthy_since = (
-            self._utc_isoformat(self._aware_now()) if now_truthy else None
-        )
-        if (
-            config.completion_mode is CompletionMode.INSTANT
-            and now_truthy
-            and not was_truthy
-        ):
+        if config.completion_mode is CompletionMode.INSTANT:
+            completed = self._apply_instant_mode(
+                user,
+                slot,
+                progress,
+                now_truthy=now_truthy,
+                now=now,
+            )
+        else:
+            completed = self._apply_duration_mode(
+                user,
+                slot,
+                config,
+                progress,
+                now_truthy=now_truthy,
+                now=now,
+            )
+        if completed:
             self.log("Habit template completed %s slot %s", user, slot)
-            # _set_completion persists and republishes.
             self._set_completion(user, slot, 1)
         else:
+            self._save_template_progress_if_changed(progress, progress_before)
+            self._publish_template_attributes_if_changed(user, slot)
+
+    def _apply_instant_mode(
+        self,
+        user: str,
+        slot: int,
+        progress: TemplateProgress,
+        *,
+        now_truthy: bool,
+        now: datetime,
+    ) -> bool:
+        """Apply rising-edge completion for an instant-mode slot."""
+        self.templates.cancel_duration(user, slot)
+        was_truthy = progress.is_truthy
+        progress.truthy_since = self._utc_isoformat(now) if now_truthy else None
+        return now_truthy and not was_truthy
+
+    def _apply_duration_mode(
+        self,
+        user: str,
+        slot: int,
+        config: HabitConfig,
+        progress: TemplateProgress,
+        *,
+        now_truthy: bool,
+        now: datetime,
+    ) -> bool:
+        """Bank elapsed truthy time and arm the remaining duration."""
+        elapsed = self._elapsed_truthy_seconds(progress, now)
+        if not now_truthy:
+            if progress.is_truthy and config.completion_mode is CompletionMode.SUMMED:
+                progress.accumulated_seconds += elapsed
+            progress.truthy_since = None
+            self.templates.cancel_duration(user, slot)
+            return False
+        if not progress.is_truthy:
+            progress.truthy_since = self._utc_isoformat(now)
+            elapsed = 0
+        counted = elapsed
+        if config.completion_mode is CompletionMode.SUMMED:
+            counted += progress.accumulated_seconds
+        remaining = config.completion_duration_minutes * 60 - counted
+        if remaining <= 0:
+            self.templates.cancel_duration(user, slot)
+            return True
+        self.templates.arm_duration(user, slot, remaining)
+        return False
+
+    def _elapsed_truthy_seconds(
+        self,
+        progress: TemplateProgress,
+        now: datetime,
+    ) -> int:
+        """Return whole elapsed truthy seconds, clamped against clock skew."""
+        if progress.truthy_since is None:
+            return 0
+        truthy_since = self._parse_fire_at(progress.truthy_since)
+        return max(0, int((now - truthy_since).total_seconds()))
+
+    def _save_template_progress_if_changed(
+        self,
+        progress: TemplateProgress,
+        previous: dict[str, Any] | None,
+    ) -> None:
+        """Persist template progress only when its durable state changed."""
+        if progress.to_dict() != previous:
             self.store.save()
+
+    def _publish_template_attributes_if_changed(self, user: str, slot: int) -> None:
+        """Republish a slot only when its template attributes changed."""
+        attributes = self._template_attributes(user, slot)
+        if self._published_template_attributes.get((user, slot)) != attributes:
+            self._publish_habit_state(user, slot)
+
+    def _template_attributes(self, user: str, slot: int) -> dict[str, object]:
+        """Build the observable state of a slot's completion template."""
+        data = self.store.data.users[user]
+        config = data.habits[slot]
+        today = self.datetime().date().isoformat()
+        progress = data.template_progress.get(slot)
+        if progress is not None and progress.day != today:
+            progress = None
+        attributes: dict[str, object] = {
+            "completion_mode": config.completion_mode,
+            "condition": progress.is_truthy if progress is not None else False,
+            "template_error": self._template_errors.get((user, slot)),
+            "watched_entities": list(self._watched_entities.get((user, slot), ())),
+        }
+        if config.completion_mode.is_duration_based:
+            seconds = 0
+            if progress is not None:
+                if config.completion_mode is CompletionMode.SUMMED:
+                    seconds = progress.accumulated_seconds
+                seconds += self._elapsed_truthy_seconds(progress, self._aware_now())
+            attributes.update(
+                {
+                    "condition_minutes": round(seconds / 60, 2),
+                    "condition_target_minutes": config.completion_duration_minutes,
+                },
+            )
+        return attributes
 
     def _is_complete_today(self, user: str, slot: int) -> bool:
         return (
@@ -1391,6 +1538,7 @@ class HabitTracker(hass.Hass):
         # next evaluation rather than cleared here.
         for slot, config in data.habits.items():
             if config.configured and config.completion_mode.is_event_driven:
+                self.templates.cancel_duration(user, slot)
                 self._schedule_evaluation(user, slot)
         self.store.save()
         self._publish_mood_state(user)
@@ -1411,6 +1559,8 @@ class HabitTracker(hass.Hass):
             with suppress(AttributeError):
                 self.templates.remove(user, slot)
             self._watched_entities.pop((user, slot), None)
+            self._template_errors.pop((user, slot), None)
+            self._published_template_attributes.pop((user, slot), None)
         return added_spare, retired
 
     def _validate_config(self) -> bool:  # noqa: C901, PLR0912
