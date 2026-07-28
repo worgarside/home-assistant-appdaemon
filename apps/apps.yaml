@@ -46,6 +46,10 @@ habit_tracker:
     - vic
   store_directory: /homeassistant/.appdaemon/habits
   reminders_enabled: true
+  # Cutover flag: leave false until the new completion entities are configured
+  # and verified, then enable to let templates complete habits.
+  template_evaluation_enabled: false
+  template_eval_debounce_seconds: 2
   ai_task_entity: ai_task.habit_reminder_ai
 
   mqtt_host: !secret appdaemon_mqtt_host

@@ -19,6 +19,7 @@ from .models import (
     HabitConfig,
     HabitType,
     PendingReminder,
+    TemplateProgress,
     UnsupportedSchemaVersionError,
     UserData,
     calculate_mood_streak,
@@ -28,6 +29,7 @@ from .models import (
 from .mqtt import HabitMqtt, MqttSettings
 from .reminders import ReminderManager, repeat_fits_before_midnight
 from .store import HabitStore
+from .templates import TemplateWatcher, coerce_truthy, extract_candidate_entities
 
 INVALID_STATES: Final[frozenset[object]] = frozenset(
     {None, "", "unknown", "unavailable"},
@@ -76,6 +78,10 @@ REQUIRED_USER_KEYS: Final[tuple[str, ...]] = (
 SLOT_TOPIC_PARTS: Final[int] = 4
 ACTION_PARTS: Final[int] = 3
 MAX_NETWORK_PORT: Final[int] = 65535
+# Ticks on the minute, so a duration-based template reconciles once a minute
+# even if one of its dependencies changes without emitting an event.
+TIME_TICK_ENTITY: Final[str] = "sensor.time"
+MAX_DEBOUNCE_SECONDS: Final[float] = 60
 
 
 class HabitTracker(hass.Hass):
@@ -93,6 +99,12 @@ class HabitTracker(hass.Hass):
             return
         self.mqtt = None
         self.reminders_enabled = bool(self.args.get("reminders_enabled", False))
+        self.template_evaluation_enabled = bool(
+            self.args.get("template_evaluation_enabled", False),
+        )
+        self.template_eval_debounce_seconds = float(
+            self.args.get("template_eval_debounce_seconds", 2),
+        )
         try:
             self.store = HabitStore(
                 Path(
@@ -119,6 +131,12 @@ class HabitTracker(hass.Hass):
         self.store.save()
 
         self.reminders = ReminderManager(self, self._reminder_callback)
+        self.templates = TemplateWatcher(
+            self,
+            self._template_dependency_changed,
+            self._template_evaluation_callback,
+        )
+        self._watched_entities: dict[tuple[str, int], tuple[str, ...]] = {}
         self._configure_mqtt()
         self.listen_event(
             self._handle_notification_action,
@@ -132,12 +150,23 @@ class HabitTracker(hass.Hass):
 
     def _restore_reminders_callback(self, _kwargs: dict[str, Any]) -> None:
         self._restore_reminders()
+        self._restore_templates()
         self.store.save()
+
+    def _restore_templates(self) -> None:
+        """Re-subscribe every event-driven slot and evaluate it once."""
+        for user, data in self.store.data.users.items():
+            for slot, config in data.habits.items():
+                self._rebuild_template_listeners(user, slot)
+                if config.configured and config.completion_mode.is_event_driven:
+                    self._schedule_evaluation(user, slot)
 
     def terminate(self) -> None:
         """Persist, mark unavailable, and disconnect cleanly."""
         with suppress(AttributeError):
             self.reminders.cancel_all()
+        with suppress(AttributeError):
+            self.templates.cancel_all()
         with suppress(AttributeError, OSError):
             self.store.save()
         if self.mqtt is not None:
@@ -305,6 +334,14 @@ class HabitTracker(hass.Hass):
             self._seed_next_reminder(user, config, force=True)
         elif config.configured and slot not in data.pending_reminders:
             self._seed_next_reminder(user, config)
+        if key in {
+            "completion_duration",
+            "completion_mode",
+            "completion_template",
+            "name",
+        }:
+            self._rebuild_template_listeners(user, slot)
+            self._schedule_evaluation(user, slot)
         added_spare, retired = self._normalize_user_slots(user)
         self.store.save()
         if self.mqtt is not None:
@@ -399,6 +436,14 @@ class HabitTracker(hass.Hass):
             self._clear_pending(user, slot)
         elif config.configured:
             self._seed_next_reminder(user, config, force=True)
+        if config.completion_mode.is_event_driven:
+            progress = self._template_progress(user, slot, day)
+            progress.truthy_since = None
+            progress.accumulated_seconds = 0
+            if not count:
+                # A manual un-tick must not be instantly undone by a template
+                # that is still truthy, so stop evaluating this slot for today.
+                progress.suppressed_day = day
         self.store.append_completion_log(user, slot, day, count)
         self.store.save()
         self._publish_habit_state(user, slot)
@@ -449,7 +494,11 @@ class HabitTracker(hass.Hass):
         )
         self.mqtt.publish(
             f"{prefix}/name/attributes",
-            self._slot_attributes(config),
+            {
+                **self._slot_attributes(config),
+                "completion_mode": config.completion_mode,
+                "watched_entities": list(self._watched_entities.get((user, slot), ())),
+            },
         )
 
     def _publish_mood_state(self, user: str) -> None:
@@ -724,6 +773,128 @@ class HabitTracker(hass.Hass):
             f"{self.mqtt.topic(f'{user}/mood')}/mood_next_reminder/state",
             payload,
         )
+
+    def _rebuild_template_listeners(self, user: str, slot: int) -> None:
+        """Re-subscribe a slot to the entities its template actually references."""
+        config = self.store.data.users[user].habits.get(slot)
+        if (
+            config is None
+            or not config.configured
+            or not config.completion_mode.is_event_driven
+        ):
+            self.templates.remove(user, slot)
+            self._watched_entities.pop((user, slot), None)
+            return
+        candidates = extract_candidate_entities(config.completion_template)
+        # The pattern cannot distinguish an entity from an attribute access, so
+        # keep only candidates Home Assistant actually knows about.
+        entities = [name for name in candidates if self.get_state(name) is not None]
+        if not entities:
+            self.error(
+                "Habit template for %s slot %s references no known entities, so it "
+                "will never re-evaluate: %r",
+                user,
+                slot,
+                config.completion_template,
+            )
+        if config.completion_mode.is_duration_based:
+            entities.append(TIME_TICK_ENTITY)
+        self._watched_entities[(user, slot)] = self.templates.watch(
+            user,
+            slot,
+            entities,
+        )
+
+    def _template_dependency_changed(
+        self,
+        entity: str,
+        attribute: str,
+        old: Any,
+        new: Any,
+        **kwargs: Any,
+    ) -> None:
+        del entity, attribute, old, new
+        self._schedule_evaluation(str(kwargs["user"]), int(kwargs["slot"]))
+
+    def _schedule_evaluation(self, user: str, slot: int) -> None:
+        self.templates.schedule(user, slot, self.template_eval_debounce_seconds)
+
+    def _template_evaluation_callback(self, kwargs: dict[str, Any]) -> None:
+        user = str(kwargs["user"])
+        slot = int(kwargs["slot"])
+        self.templates.release(user, slot)
+        self._evaluate_template(user, slot)
+
+    def _template_progress(
+        self,
+        user: str,
+        slot: int,
+        today: str,
+    ) -> TemplateProgress:
+        """Return today's progress record, resetting a stale one."""
+        data = self.store.data.users[user]
+        progress = data.template_progress.get(slot)
+        if progress is None or progress.day != today:
+            progress = TemplateProgress(day=today)
+            data.template_progress[slot] = progress
+        return progress
+
+    def _render_truthy(self, user: str, slot: int, template: str) -> bool:
+        """Render a template, treating any failure as falsy."""
+        try:
+            rendered = self.render_template(template)
+        except Exception as error:
+            self.error("Habit template failed for %s slot %s: %s", user, slot, error)
+            return False
+        truthy = coerce_truthy(rendered)
+        if truthy is None:
+            self.error(
+                "Habit template for %s slot %s returned an unusable value: %r",
+                user,
+                slot,
+                rendered,
+            )
+            return False
+        return truthy
+
+    def _evaluate_template(self, user: str, slot: int) -> None:
+        """Evaluate one slot's completion template and act on the result."""
+        if not self.template_evaluation_enabled:
+            return
+        data = self.store.data.users[user]
+        config = data.habits.get(slot)
+        if config is None or not config.configured:
+            return
+        if not config.completion_mode.is_event_driven:
+            if data.template_progress.pop(slot, None) is not None:
+                self.store.save()
+            return
+        if not config.completion_template.strip():
+            return
+        today = self.datetime().date().isoformat()
+        progress = self._template_progress(user, slot, today)
+        if progress.suppressed_day == today:
+            return
+        if self._is_complete_today(user, slot):
+            progress.truthy_since = None
+            progress.accumulated_seconds = 0
+            self.store.save()
+            return
+        was_truthy = progress.is_truthy
+        now_truthy = self._render_truthy(user, slot, config.completion_template)
+        progress.truthy_since = (
+            self._utc_isoformat(self._aware_now()) if now_truthy else None
+        )
+        if (
+            config.completion_mode is CompletionMode.INSTANT
+            and now_truthy
+            and not was_truthy
+        ):
+            self.log("Habit template completed %s slot %s", user, slot)
+            # _set_completion persists and republishes.
+            self._set_completion(user, slot, 1)
+            return
+        self.store.save()
 
     def _is_complete_today(self, user: str, slot: int) -> bool:
         return (
@@ -1215,6 +1386,11 @@ class HabitTracker(hass.Hass):
             if config.configured:
                 self._seed_next_reminder(user, config, force=True)
         self._seed_mood_reminder(user, force=True)
+        # Progress records are keyed by day, so a stale one is replaced on the
+        # next evaluation rather than cleared here.
+        for slot, config in data.habits.items():
+            if config.configured and config.completion_mode.is_event_driven:
+                self._schedule_evaluation(user, slot)
         self.store.save()
         self._publish_mood_state(user)
         for slot in data.habits:
@@ -1231,6 +1407,9 @@ class HabitTracker(hass.Hass):
         for slot in retired:
             with suppress(AttributeError):
                 self.reminders.remove(user, slot)
+            with suppress(AttributeError):
+                self.templates.remove(user, slot)
+            self._watched_entities.pop((user, slot), None)
         return added_spare, retired
 
     def _validate_config(self) -> bool:  # noqa: C901, PLR0912
@@ -1255,6 +1434,12 @@ class HabitTracker(hass.Hass):
                 errors.append("mqtt_qos")
         except (TypeError, ValueError):
             errors.append("mqtt_qos")
+        try:
+            debounce = float(self.args.get("template_eval_debounce_seconds", 2))
+            if not 0 <= debounce <= MAX_DEBOUNCE_SECONDS:
+                errors.append("template_eval_debounce_seconds")
+        except (TypeError, ValueError):
+            errors.append("template_eval_debounce_seconds")
         for key in ("mqtt_discovery_prefix", "mqtt_base_topic"):
             value = self.args.get(key)
             if value is not None and (not isinstance(value, str) or not value.strip("/")):
