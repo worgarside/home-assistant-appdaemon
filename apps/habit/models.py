@@ -5,9 +5,13 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
-from typing import Any, Final, Self
+from typing import TYPE_CHECKING, Any, Final, Self
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 SCHEMA_VERSION: Final[int] = 1
+MIN_SCHEMA_VERSION: Final[int] = 1
 MAX_NAME_LENGTH: Final[int] = 255
 MAX_REPEAT_COUNT: Final[int] = 100
 MAX_REPEAT_INTERVAL: Final[int] = 1440
@@ -21,6 +25,22 @@ MOOD_OPTIONS: Final[tuple[str, ...]] = (
     "Good",
     "Great",
 )
+
+
+class UnsupportedSchemaVersionError(ValueError):
+    """Raised when a persisted store cannot be parsed by this build.
+
+    Distinct from a corrupt store: the file is structurally intact, it just
+    carries a version this code does not know how to read. Callers must not
+    quarantine or overwrite it.
+    """
+
+    def __init__(self, version: int) -> None:
+        super().__init__(
+            f"unsupported schema version: {version} "
+            f"(this build supports {MIN_SCHEMA_VERSION}-{SCHEMA_VERSION})",
+        )
+        self.version = version
 
 
 class HabitType(StrEnum):
@@ -242,6 +262,32 @@ class UserData:
         )
 
 
+# Upgrade steps keyed by source version; entry N migrates a payload from
+# version N to version N+1. Register a step in the same change that bumps
+# SCHEMA_VERSION.
+SCHEMA_MIGRATIONS: Final[dict[int, Callable[[dict[str, Any]], dict[str, Any]]]] = {}
+
+
+def migrate_store_payload(
+    value: dict[str, Any],
+    *,
+    from_version: int,
+) -> dict[str, Any]:
+    """Upgrade a raw store payload to the current schema version.
+
+    A missing step is fatal rather than silently skipped, so a forgotten
+    migration surfaces as a refusal to start instead of as data loss.
+    """
+    migrated = dict(value)
+    for version in range(from_version, SCHEMA_VERSION):
+        step = SCHEMA_MIGRATIONS.get(version)
+        if step is None:
+            raise UnsupportedSchemaVersionError(from_version)
+        migrated = step(migrated)
+        migrated["schema_version"] = version + 1
+    return migrated
+
+
 @dataclass(slots=True)
 class StoreData:
     """Top-level versioned persistence schema."""
@@ -265,17 +311,19 @@ class StoreData:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> Self:
-        """Parse the current schema, rejecting unsupported versions."""
+        """Parse any supported schema version, upgrading older payloads first."""
         version = _integer(value, "schema_version")
-        if version != SCHEMA_VERSION:
-            raise ValueError(f"unsupported schema version: {version}")
+        if not MIN_SCHEMA_VERSION <= version <= SCHEMA_VERSION:
+            raise UnsupportedSchemaVersionError(version)
+        if version < SCHEMA_VERSION:
+            value = migrate_store_payload(value, from_version=version)
         users = {
             str(user): UserData.from_dict(_dict(data))
             for user, data in _mapping(value, "users").items()
         }
         return cls(
             users=users,
-            schema_version=version,
+            schema_version=SCHEMA_VERSION,
         )
 
 

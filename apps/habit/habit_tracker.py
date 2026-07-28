@@ -16,6 +16,7 @@ from .models import (
     HabitConfig,
     HabitType,
     PendingReminder,
+    UnsupportedSchemaVersionError,
     UserData,
     calculate_mood_streak,
     calculate_streak,
@@ -89,19 +90,25 @@ class HabitTracker(hass.Hass):
             return
         self.mqtt = None
         self.reminders_enabled = bool(self.args.get("reminders_enabled", False))
-        self.store = HabitStore(
-            Path(
-                str(
-                    self.args.get(
-                        "store_directory",
-                        "/homeassistant/.appdaemon/habits",
+        try:
+            self.store = HabitStore(
+                Path(
+                    str(
+                        self.args.get(
+                            "store_directory",
+                            "/homeassistant/.appdaemon/habits",
+                        ),
                     ),
                 ),
-            ),
-            self.users,
-            log=self.log,
-            error=self.error,
-        )
+                self.users,
+                log=self.log,
+                error=self.error,
+            )
+        except UnsupportedSchemaVersionError as error:
+            # Stay inert: no timers, no MQTT, no save. The on-disk store is
+            # intact and must not be overwritten by an empty one.
+            self.error("Habit tracker disabled, store is incompatible: %s", error)
+            return
         self._startup_retired: dict[str, tuple[int, ...]] = {}
         for user in self.users:
             _, retired = self._normalize_user_slots(user)

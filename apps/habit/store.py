@@ -10,7 +10,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from .models import StoreData
+from .models import StoreData, UnsupportedSchemaVersionError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -45,6 +45,16 @@ class HabitStore:
                 data = self._read(candidate)
             except FileNotFoundError:
                 continue
+            except UnsupportedSchemaVersionError as exc:
+                # Intact data written by a different build. Quarantining would
+                # rename it and the next save would replace it with an empty
+                # store, so refuse to start and leave the file untouched.
+                self._error(
+                    f"Habit store {candidate} was written by an incompatible "
+                    f"build ({exc}); refusing to start so the file is not "
+                    "overwritten. Restore a compatible store or upgrade the app",
+                )
+                raise
             except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 saw_unreadable = True
                 self._error(
