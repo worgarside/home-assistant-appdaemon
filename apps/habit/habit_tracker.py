@@ -45,8 +45,11 @@ Requirements:
 - One or two short sentences maximum
 - Mention the habit name naturally
 - Do not address the recipient by name or with a personal greeting
-- Use provided context only when it is directly relevant to this habit and changes
-  what a useful reminder would say; otherwise ignore it
+- Treat the provided context as private guidance for choosing an appropriate reminder,
+  not content to repeat to the recipient
+- Do not state, summarize, or open with contextual facts such as the time, day, date,
+  month, location, work status, calendar availability, activity, weather, or mood
+- Use context only when it materially changes what a useful reminder would say
 - Do not name specific places, addresses, or coordinates
 - Do not include markdown, emojis, quotes, or a title"""
 MOOD_AI_INSTRUCTIONS: Final[str] = """Write one short mood check-in reminder notification
@@ -60,8 +63,11 @@ Requirements:
 - One or two short sentences maximum
 - Ask the recipient to log how they are feeling today
 - Do not address the recipient by name or with a personal greeting
-- Use provided context only when it is directly relevant to logging mood and changes
-  what a useful reminder would say; otherwise ignore it
+- Treat the provided context as private guidance for choosing an appropriate reminder,
+  not content to repeat to the recipient
+- Do not state, summarize, or open with contextual facts such as the time, day, date,
+  month, location, work status, calendar availability, activity, weather, or mood
+- Use context only when it materially changes what a useful reminder would say
 - Do not name specific places, addresses, or coordinates
 - Do not include markdown, emojis, quotes, or a title"""
 MOOD_FALLBACK_MESSAGE: Final[str] = "Don't forget to log how you're feeling today."

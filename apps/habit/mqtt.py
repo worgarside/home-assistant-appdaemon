@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 import paho.mqtt.client as paho
 from paho.mqtt.enums import CallbackAPIVersion
 
+from .models import MAX_TEMPLATE_LENGTH, MOOD_OPTIONS, CompletionMode
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
@@ -158,13 +160,13 @@ class HabitMqtt:
                 "select",
                 "completion_mode",
                 f"{display} completion mode",
-                {"options": list(_completion_modes())},
+                {"options": [str(mode) for mode in CompletionMode]},
             ),
             EntitySpec(
                 "text",
                 "completion_template",
                 f"{display} completion template",
-                {"max": _max_template_length(), "icon": "mdi:code-braces"},
+                {"max": MAX_TEMPLATE_LENGTH, "icon": "mdi:code-braces"},
             ),
             EntitySpec(
                 "number",
@@ -254,7 +256,7 @@ class HabitMqtt:
                     "select",
                     "mood_today",
                     "Mood today",
-                    {"options": list(_mood_options())},
+                    {"options": list(MOOD_OPTIONS)},
                 ),
                 EntitySpec("text", "mood_note", "Mood note", {}),
                 EntitySpec(
@@ -327,8 +329,7 @@ class HabitMqtt:
 
     def subscribe_commands(self) -> None:
         """Subscribe to slot and mood commands."""
-        for topic in ("+/+/+/set", "+/mood/+/set"):
-            self.client.subscribe(self.topic(topic), qos=self.settings.qos)
+        self.client.subscribe(self.topic("+/+/+/set"), qos=self.settings.qos)
 
     def _handle_connect(
         self,
@@ -415,21 +416,3 @@ def _slot_entity_keys() -> tuple[tuple[str, str], ...]:
         ("number", "completion_duration"),
         ("sensor", "streak"),
     )
-
-
-def _mood_options() -> tuple[str, ...]:
-    from .models import MOOD_OPTIONS  # noqa: PLC0415
-
-    return MOOD_OPTIONS
-
-
-def _completion_modes() -> tuple[str, ...]:
-    from .models import CompletionMode  # noqa: PLC0415
-
-    return tuple(str(mode) for mode in CompletionMode)
-
-
-def _max_template_length() -> int:
-    from .models import MAX_TEMPLATE_LENGTH  # noqa: PLC0415
-
-    return MAX_TEMPLATE_LENGTH
