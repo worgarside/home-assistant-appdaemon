@@ -85,7 +85,7 @@ class SpotifyTrackProcessor(Hass):
             ),
         }
 
-        self.run_every(self.process_liked_tracks, "now", 15 * 60)
+        self.run_every(self.process_liked_tracks, "immediate", 15 * 60)
         self.listen_state(self.process_now_playing, "var.tasker_pixel_now_playing")
         self.listen_state(
             self.update_tempo_variable,
@@ -95,7 +95,7 @@ class SpotifyTrackProcessor(Hass):
 
         self.run_every(
             self.update_top_track_playlists,
-            "now",
+            "immediate",
             timedelta(days=3).total_seconds(),
         )
 

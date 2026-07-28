@@ -168,7 +168,7 @@ class SlcBalance(hass.Hass):
         )
 
         self._configure_mqtt()
-        self.run_every(self.poll_slc, "now", self.poll_interval)
+        self.run_every(self.poll_slc, "immediate", self.poll_interval)
         self.log(
             "Initialized SLC balance polling every %s seconds "
             "(availability offline after %s consecutive failures)",

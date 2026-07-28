@@ -162,7 +162,7 @@ class BankBalanceGetter(Hass):
         if self.entities[entity_type]:
             callback = self._callback_factory(entity_type)
 
-            self.run_every(callback, "now", 15 * 60)
+            self.run_every(callback, "immediate", 15 * 60)
             self.log(
                 "Added callback for %s balances: %s",
                 entity_type,
