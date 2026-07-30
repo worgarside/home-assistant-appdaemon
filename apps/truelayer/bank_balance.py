@@ -26,6 +26,7 @@ TrueLayerClient.HEADLESS_MODE = True
 CREDENTIALS_CACHE_DIR: Final[Path] = Path(
     "/homeassistant/.wg-utilities/oauth_credentials",
 )
+DEFAULT_NOTIFY_SCRIPT: Final[str] = "script.notify_will"
 VARIANT_REF_PATTERN: Final[Pattern[str]] = re_compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -51,8 +52,9 @@ class BankBalanceGetter(Hass):
         self.balance_slug = self._get_balance_slug()
         self.auth_code_input_text = f"input_text.truelayer_auth_token_{self.balance_slug}"
         self.redirect_uri = "https://console.truelayer.com/redirect-page"
-        self.notification_id = f"truelayer_access_token_{self.bank.name.lower()}_expired"
+        self.notification_id = f"truelayer_access_token_{self.balance_slug}_expired"
         self.reauth_var = self.args["reauth_var"]
+        self.notify_script = str(self.args.get("notify_script", DEFAULT_NOTIFY_SCRIPT))
 
         client_id = self.args["client_id"]
         if credentials_cache_path := self._get_credentials_cache_path(client_id):

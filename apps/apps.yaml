@@ -199,6 +199,7 @@ amex_vic_balance_getter:
   notify_script: script.notify_vic
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
+  reauth_var: var.truelayer_reauth_amex_vic
   card_ids:
     no_ref:
 
