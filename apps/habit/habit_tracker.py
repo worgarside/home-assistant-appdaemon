@@ -343,7 +343,8 @@ class HabitTracker(hass.Hass):
             for field_name, previous in snapshot.items():
                 setattr(config, field_name, previous)
             raise
-        if config.name != old_name or config.habit_type is not old_type:
+        counts_changed = config.name != old_name or config.habit_type is not old_type
+        if counts_changed:
             self._clear_pending(user, slot)
         if (
             config.reminder_time != old_reminder_time
@@ -378,7 +379,8 @@ class HabitTracker(hass.Hass):
             for retired_slot in retired:
                 self._clear_pending(user, retired_slot)
                 self.mqtt.retire_slot(user, retired_slot)
-            self._publish_habit_type_counts(user)
+            if counts_changed:
+                self._publish_habit_type_counts(user)
 
     def _update_mood(self, user: str, key: str, payload: str) -> None:
         data = self.store.data.users[user]
