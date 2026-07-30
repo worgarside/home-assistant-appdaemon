@@ -7,7 +7,9 @@ from enum import StrEnum
 from http import HTTPStatus
 from json import dumps
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from re import Pattern
+from re import compile as re_compile
+from typing import TYPE_CHECKING, Any, Final
 from urllib import parse
 
 from appdaemon.plugins.hass.hassapi import Hass
@@ -21,6 +23,11 @@ if TYPE_CHECKING:
 
 TrueLayerClient.HEADLESS_MODE = True
 
+CREDENTIALS_CACHE_DIR: Final[Path] = Path(
+    "/homeassistant/.wg-utilities/oauth_credentials",
+)
+VARIANT_REF_PATTERN: Final[Pattern[str]] = re_compile(r"^[a-z][a-z0-9_]*$")
+
 
 class EntityType(StrEnum):
     """The type of entity."""
@@ -33,25 +40,35 @@ class BankBalanceGetter(Hass):
     """Get bank account/card balances from TrueLayer."""
 
     bank: Bank
+    balance_slug: str
     client: TrueLayerClient
     entities: dict[EntityType, dict[str, Account] | dict[str, Card]]
+    notify_script: str
 
     def initialize(self) -> None:
         """Initialize the app."""
         self.bank = Bank[self.args["bank_ref"].upper().replace(" ", "_")]
-        self.auth_code_input_text = (
-            f"input_text.truelayer_auth_token_{self.bank.name.lower()}"
-        )
+        self.balance_slug = self._get_balance_slug()
+        self.auth_code_input_text = f"input_text.truelayer_auth_token_{self.balance_slug}"
         self.redirect_uri = "https://console.truelayer.com/redirect-page"
         self.notification_id = f"truelayer_access_token_{self.bank.name.lower()}_expired"
         self.reauth_var = self.args["reauth_var"]
 
-        self.client = TrueLayerClient(
-            client_id=self.args["client_id"],
-            client_secret=self.args["client_secret"],
-            creds_cache_dir=Path("/homeassistant/.wg-utilities/oauth_credentials"),
-            bank=self.bank,
-        )
+        client_id = self.args["client_id"]
+        if credentials_cache_path := self._get_credentials_cache_path(client_id):
+            self.client = TrueLayerClient(
+                client_id=client_id,
+                client_secret=self.args["client_secret"],
+                creds_cache_path=credentials_cache_path,
+                bank=self.bank,
+            )
+        else:
+            self.client = TrueLayerClient(
+                client_id=client_id,
+                client_secret=self.args["client_secret"],
+                creds_cache_dir=CREDENTIALS_CACHE_DIR,
+                bank=self.bank,
+            )
 
         self.entities = {}
         self.initialize_entities()
@@ -70,10 +87,7 @@ class BankBalanceGetter(Hass):
         def update_entity_balances(_: dict[str, Any]) -> None:
             """Loop through the account/card IDs and retrieve their balances."""
             for entity_ref, entity in self.entities[entity_key].items():
-                variable_id = f"var.truelayer_balance_{self.bank.name.lower()}"
-
-                if entity_ref != "no_ref":
-                    variable_id += f"_{entity_ref}"
+                variable_id = self._get_variable_id(entity_ref)
 
                 self.log("Updating `%s` balance", variable_id)
 
@@ -90,6 +104,47 @@ class BankBalanceGetter(Hass):
             )
 
         return update_entity_balances
+
+    def _get_balance_slug(self) -> str:
+        """Get the slug used for HA entities and OAuth credential isolation."""
+        variant_ref = self.args.get("variant_ref")
+
+        if variant_ref is None:
+            return self.bank.name.lower()
+
+        if not isinstance(variant_ref, str) or not VARIANT_REF_PATTERN.fullmatch(
+            variant_ref,
+        ):
+            raise ValueError(
+                "`variant_ref` must be a lowercase snake_case string starting with a "
+                "letter",
+            )
+
+        return variant_ref
+
+    def _get_credentials_cache_path(self, client_id: str) -> Path | None:
+        """Get an explicit credentials path for a variant, or None for defaults."""
+        if self.balance_slug == self.bank.name.lower():
+            return None
+
+        credentials_cache_path = (
+            CREDENTIALS_CACHE_DIR
+            / TrueLayerClient.__name__
+            / client_id
+            / f"{self.balance_slug}.json"
+        )
+        credentials_cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+        return credentials_cache_path
+
+    def _get_variable_id(self, entity_ref: str) -> str:
+        """Get the HA var entity ID for a TrueLayer account/card ref."""
+        variable_id = f"var.truelayer_balance_{self.balance_slug}"
+
+        if entity_ref != "no_ref":
+            variable_id += f"_{entity_ref}"
+
+        return variable_id
 
     def initialize_entities(self) -> None:
         """Initialize the TrueLayer cards and/or accounts."""
@@ -192,12 +247,12 @@ class BankBalanceGetter(Hass):
 
         self.call_service(
             "script/turn_on",
-            entity_id="script.notify_will",
+            entity_id=self.notify_script,
             variables={
                 "clear_notification": True,
                 "title": f"{self.bank} Access Token Expired",
                 "message": f"TrueLayer access token for {self.bank} has expired!",
-                "notification_id": f"truelayer_access_token_{self.bank.name.lower()}_expired",
+                "notification_id": self.notification_id,
                 "mobile_notification_icon": "mdi:key-alert-outline",
                 "actions": dumps(
                     [
@@ -302,7 +357,7 @@ class BankBalanceGetter(Hass):
         self.set_reauth_status(needs_reauth=False)
         self.call_service(
             "script/turn_on",
-            entity_id="script.notify_will",
+            entity_id=self.notify_script,
             variables={
                 "clear_notification": True,
                 "notification_id": self.notification_id,
