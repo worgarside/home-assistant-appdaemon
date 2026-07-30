@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.27.0 (2026-07-30)
+
+### Features
+
+- Add habit type count sensors
+  ([#272](https://github.com/worgarside/home-assistant-appdaemon/pull/272),
+  [`40b354f`](https://github.com/worgarside/home-assistant-appdaemon/commit/40b354f70d700ecd216d9f6a638916dcc35ed9ce))
+
+- **truelayer**: Introduce support for balance retrieval with variants
+  ([#273](https://github.com/worgarside/home-assistant-appdaemon/pull/273),
+  [`9f2ac24`](https://github.com/worgarside/home-assistant-appdaemon/commit/9f2ac24715dcfed87f5ddeab4d0cb9217d82d79b))
+
+
 ## v0.26.0 (2026-07-28)
 
 ### Refactoring
