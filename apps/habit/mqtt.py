@@ -249,8 +249,9 @@ class HabitMqtt:
             )
 
     def publish_mood_discovery(self, users: Iterable[str]) -> None:
-        """Publish mood entities with consistent availability and origin."""
+        """Publish user-level mood and habit-count entities."""
         for user in users:
+            display = user.title()
             for spec in (
                 EntitySpec(
                     "select",
@@ -303,13 +304,32 @@ class HabitMqtt:
                         "unit_of_measurement": "min",
                     },
                 ),
+                EntitySpec(
+                    "sensor",
+                    "habits_binary_count",
+                    f"{display} | Habits Binary Count",
+                    {"icon": "mdi:toggle-switch"},
+                    configurable=False,
+                ),
+                EntitySpec(
+                    "sensor",
+                    "habits_countable_count",
+                    f"{display} | Habits Countable Count",
+                    {"icon": "mdi:numeric"},
+                    configurable=False,
+                ),
             ):
                 object_id = f"{user}_{spec.key}"
+                state_path = (
+                    f"{user}/{spec.key}"
+                    if spec.key.startswith("habits_")
+                    else f"{user}/mood/{spec.key}"
+                )
                 payload: dict[str, object] = {
                     "name": spec.name,
                     "unique_id": f"appdaemon_{object_id}",
                     "default_entity_id": f"{spec.component}.{object_id}",
-                    "state_topic": self.topic(f"{user}/mood/{spec.key}/state"),
+                    "state_topic": self.topic(f"{state_path}/state"),
                     "availability_topic": self.topic("availability"),
                     "payload_available": "online",
                     "payload_not_available": "offline",
@@ -318,9 +338,7 @@ class HabitMqtt:
                     **spec.extra,
                 }
                 if spec.component != "sensor":
-                    payload["command_topic"] = self.topic(
-                        f"{user}/mood/{spec.key}/set",
-                    )
+                    payload["command_topic"] = self.topic(f"{state_path}/set")
                 if spec.component == "switch":
                     payload.update({"payload_on": "ON", "payload_off": "OFF"})
                 if spec.configurable:
