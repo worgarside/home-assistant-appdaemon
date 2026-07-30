@@ -191,6 +191,18 @@ amex_balance_getter:
   card_ids:
     no_ref:
 
+amex_vic_balance_getter:
+  module: bank_balance
+  class: BankBalanceGetter
+  bank_ref: AMEX
+  variant_ref: amex_vic
+  notify_script: script.notify_vic
+  client_id: !secret truelayer_client_id
+  client_secret: !secret truelayer_client_secret
+  reauth_var: var.truelayer_reauth_amex_vic
+  card_ids:
+    no_ref:
+
 hsbc_balance_getter:
   module: bank_balance
   class: BankBalanceGetter
