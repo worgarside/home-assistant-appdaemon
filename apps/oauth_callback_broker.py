@@ -156,7 +156,12 @@ class OAuthFlowManager:
             flow.client,
             flow.auth_params,
         )
-        self._set_reauth(flow, needs_reauth=True, auth_link=auth_link)
+        self._set_reauth(
+            flow,
+            needs_reauth=True,
+            auth_link=auth_link,
+            auth_link_expires_at=time.time() + PENDING_FLOW_TTL_SECONDS,
+        )
         self.app.call_service(
             "script/turn_on",
             entity_id=flow.notify_script,
@@ -195,7 +200,9 @@ class OAuthFlowManager:
             return
 
         self._notification_generations[flow_ref] = generation + 1
-        self._dismiss_notification(self._get_flow(flow_ref))
+        flow = self._get_flow(flow_ref)
+        self._set_reauth(flow, needs_reauth=True)
+        self._dismiss_notification(flow)
 
     def complete(self, flow_ref: str, code: str, redirect_uri: str) -> None:
         """Exchange a code and run or schedule the consumer's initialization."""
@@ -273,13 +280,17 @@ class OAuthFlowManager:
         *,
         needs_reauth: bool,
         auth_link: str = "",
+        auth_link_expires_at: float = 0,
     ) -> None:
         self.app.call_service(
             "var/set",
             entity_id=flow.reauth_var,
             value="on" if needs_reauth else "off",
             force_update=True,
-            attributes={"auth_link": auth_link},
+            attributes={
+                "auth_link": auth_link,
+                "auth_link_expires_at": auth_link_expires_at,
+            },
         )
 
 
