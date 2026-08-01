@@ -96,6 +96,7 @@ class BankBalanceGetter(OAuthFlowConsumerMixin, Hass):
                     notification_message=(
                         f"TrueLayer access token for {self.bank} has expired!"
                     ),
+                    trigger_entity=self.args["reauth_trigger"],
                     notify_script=self.notify_script,
                     auth_params={"access_type": "offline", "prompt": "consent"},
                     on_authorized=self.initialize_entities,

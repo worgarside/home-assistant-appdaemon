@@ -96,6 +96,7 @@ class OAuthFlow:
     notification_title: str
     notification_message: str
     on_authorized: Callable[[], bool | None]
+    trigger_entity: str
     notify_script: str = "script.notify_will"
     auth_params: Mapping[str, str] = field(default_factory=dict)
     retry_policy: OAuthRetryPolicy | None = None
@@ -115,7 +116,28 @@ class OAuthFlowManager:
         self.flows = {flow.ref: flow for flow in flows}
         if len(self.flows) != len(flows):
             raise ValueError("OAuth flow refs must be unique within an app")
+        self._flow_ref_by_trigger = {
+            flow.trigger_entity: flow.ref for flow in self.flows.values()
+        }
+        if len(self._flow_ref_by_trigger) != len(flows):
+            raise ValueError("OAuth trigger entities must be unique within an app")
         self._retry_attempts: dict[str, int] = {}
+        self.app.listen_state(
+            self._manual_trigger_callback,
+            list(self._flow_ref_by_trigger),
+        )
+
+    def _manual_trigger_callback(
+        self,
+        entity: str,
+        attribute: str,
+        old: Any,
+        new: Any,
+        **kwargs: Any,
+    ) -> None:
+        """Start a fresh flow whenever its Home Assistant button is pressed."""
+        del attribute, old, new, kwargs
+        self.start(self._flow_ref_by_trigger[entity])
 
     def _get_flow(self, flow_ref: str) -> OAuthFlow:
         try:

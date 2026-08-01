@@ -58,6 +58,7 @@ class CreditCardPotManager(OAuthFlowConsumerMixin, Hass):
                     notification_id="monzo_credit_card_pot_access_token_expired",
                     notification_title="Monzo (CC top-up) Access Token Expired",
                     notification_message="Monzo access token has expired!",
+                    trigger_entity=self.args["reauth_trigger"],
                     auth_params={"access_type": "offline", "prompt": "consent"},
                     on_authorized=lambda: self.initialize_entities(
                         send_notification=False,

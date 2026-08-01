@@ -101,6 +101,7 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
                     notification_id="monzo_auto_saver_access_token_expired",
                     notification_title="Monzo (auto-saver) Access Token Expired",
                     notification_message="Monzo access token has expired!",
+                    trigger_entity=self.args["monzo_reauth_trigger"],
                     auth_params=common_auth_params,
                     on_authorized=lambda: self.initialize_monzo(
                         send_notification=False,
@@ -122,6 +123,7 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
                         "TrueLayer access token for "
                         f"{self.truelayer_client.bank} (auto-saver) has expired!"
                     ),
+                    trigger_entity=self.args["truelayer_reauth_trigger"],
                     auth_params=common_auth_params,
                     on_authorized=self.initialize_amex,
                 ),
@@ -133,6 +135,7 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
                     notification_id="spotify_auto_saver_access_token_expired",
                     notification_title="Spotify (auto-saver) Access Token Expired",
                     notification_message="Spotify access token has expired!",
+                    trigger_entity=self.args["spotify_reauth_trigger"],
                     auth_params=common_auth_params,
                     on_authorized=lambda: self.initialize_spotify(
                         send_notification=False,

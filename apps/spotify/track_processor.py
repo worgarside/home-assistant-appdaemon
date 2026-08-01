@@ -84,6 +84,7 @@ class SpotifyTrackProcessor(OAuthFlowConsumerMixin, Hass):
                     notification_id="spotify_track_processor_access_token_expired",
                     notification_title=("Spotify Track Processor Access Token Expired"),
                     notification_message="Spotify access token has expired!",
+                    trigger_entity=self.args["reauth_trigger"],
                     auth_params={"show_dialog": "true"},
                     on_authorized=lambda: self.initialize_spotify(
                         send_notification=False,

@@ -169,8 +169,11 @@ monzo_auto_saver:
   truelayer_client_id: !secret truelayer_client_id
   truelayer_client_secret: !secret truelayer_client_secret
   truelayer_reauth_var: var.truelayer_reauth_amex_auto_saver
+  truelayer_reauth_trigger: input_button.oauth_reauth_truelayer_amex_auto_saver
   monzo_reauth_var: var.monzo_reauth_auto_saver
+  monzo_reauth_trigger: input_button.oauth_reauth_monzo_auto_saver
   spotify_reauth_var: var.spotify_reauth_auto_saver
+  spotify_reauth_trigger: input_button.oauth_reauth_spotify_auto_saver
 
 monzo_credit_card_pot_manager:
   module: credit_card_pot_manager
@@ -179,6 +182,7 @@ monzo_credit_card_pot_manager:
   client_id: !secret monzo_client_id
   client_secret: !secret monzo_client_secret
   reauth_var: var.monzo_reauth_cc_pot_top_up
+  reauth_trigger: input_button.oauth_reauth_monzo_cc_pot_top_up
 
 # Spotify Dynamic Playlists
 
@@ -189,6 +193,7 @@ spotify_track_processor:
   client_id: !secret spotify_pyscript_client_id
   client_secret: !secret spotify_pyscript_client_secret
   reauth_var: var.spotify_reauth_track_processor
+  reauth_trigger: input_button.oauth_reauth_spotify_track_processor
 
 # TrueLayer Variables
 
@@ -200,6 +205,7 @@ amex_balance_getter:
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
   reauth_var: var.truelayer_reauth_amex
+  reauth_trigger: input_button.oauth_reauth_truelayer_amex
   card_ids:
     no_ref:
 
@@ -213,6 +219,7 @@ amex_vic_balance_getter:
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
   reauth_var: var.truelayer_reauth_amex_vic
+  reauth_trigger: input_button.oauth_reauth_truelayer_amex_vic
   card_ids:
     no_ref:
 
@@ -224,6 +231,7 @@ hsbc_balance_getter:
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
   reauth_var: var.truelayer_reauth_hsbc
+  reauth_trigger: input_button.oauth_reauth_truelayer_hsbc
   account_ids:
     current_account: !secret truelayer_hsbc_current_account_id
 
@@ -246,6 +254,7 @@ santander_balance_getter:
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
   reauth_var: var.truelayer_reauth_santander
+  reauth_trigger: input_button.oauth_reauth_truelayer_santander
   account_ids:
     current_account: !secret truelayer_santander_current_account_id
 
@@ -257,6 +266,7 @@ starling_balance_getter:
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
   reauth_var: var.truelayer_reauth_starling
+  reauth_trigger: input_button.oauth_reauth_truelayer_starling
   account_ids:
     current_account: !secret truelayer_starling_current_account_id
 
@@ -268,5 +278,6 @@ starling_joint_balance_getter:
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
   reauth_var: var.truelayer_reauth_starling_joint
+  reauth_trigger: input_button.oauth_reauth_truelayer_starling_joint
   account_ids:
     account: !secret truelayer_starling_joint_account_id
