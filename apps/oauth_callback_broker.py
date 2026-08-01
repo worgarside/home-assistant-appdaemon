@@ -122,6 +122,7 @@ class OAuthFlowManager:
         if len(self._flow_ref_by_trigger) != len(flows):
             raise ValueError("OAuth trigger entities must be unique within an app")
         self._retry_attempts: dict[str, int] = {}
+        self._notification_generations: dict[str, int] = {}
         self.app.listen_state(
             self._manual_trigger_callback,
             list(self._flow_ref_by_trigger),
@@ -160,16 +161,41 @@ class OAuthFlowManager:
             "script/turn_on",
             entity_id=flow.notify_script,
             variables={
-                "clear_notification": True,
                 "title": flow.notification_title,
-                "message": flow.notification_message,
+                "message": (
+                    f"{flow.notification_message}\n\n"
+                    "Authorization link expires in 15 minutes."
+                ),
                 "notification_id": flow.notification_id,
                 "mobile_notification_icon": "mdi:key-alert-outline",
+                "sticky": True,
+                "timeout": PENDING_FLOW_TTL_SECONDS,
+                "chronometer": True,
+                "when": PENDING_FLOW_TTL_SECONDS,
+                "when_relative": True,
                 "actions": dumps(
                     [{"action": "URI", "title": "Auth Link", "uri": auth_link}],
                 ),
             },
         )
+        generation = self._notification_generations.get(flow_ref, 0) + 1
+        self._notification_generations[flow_ref] = generation
+        self.app.run_in(
+            self._expire_notification_callback,
+            PENDING_FLOW_TTL_SECONDS,
+            flow_ref=flow_ref,
+            generation=generation,
+        )
+
+    def _expire_notification_callback(self, kwargs: dict[str, Any]) -> None:
+        """Dismiss a notification when its corresponding authorization link expires."""
+        flow_ref = str(kwargs["flow_ref"])
+        generation = int(kwargs["generation"])
+        if self._notification_generations.get(flow_ref) != generation:
+            return
+
+        self._notification_generations[flow_ref] = generation + 1
+        self._dismiss_notification(self._get_flow(flow_ref))
 
     def complete(self, flow_ref: str, code: str, redirect_uri: str) -> None:
         """Exchange a code and run or schedule the consumer's initialization."""
@@ -224,7 +250,14 @@ class OAuthFlowManager:
     def clear(self, flow_ref: str) -> None:
         """Clear the flow's notification and reauth state."""
         flow = self._get_flow(flow_ref)
+        self._notification_generations[flow_ref] = (
+            self._notification_generations.get(flow_ref, 0) + 1
+        )
         self._set_reauth(flow, needs_reauth=False)
+        self._dismiss_notification(flow)
+
+    def _dismiss_notification(self, flow: OAuthFlow) -> None:
+        """Dismiss a flow notification without changing its reauth state."""
         self.app.call_service(
             "script/turn_on",
             entity_id=flow.notify_script,
