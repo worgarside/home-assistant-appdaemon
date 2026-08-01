@@ -151,9 +151,16 @@ slc_balance:
 
 # Monzo
 
+oauth_callback_broker:
+  module: oauth_callback_broker
+  class: OAuthCallbackBroker
+  redirect_uri: https://oauth.worgarsi.de/app/oauth-callback
+  state_db: /data/oauth_callback/pending_flows.sqlite3
+
 monzo_auto_saver:
   module: auto_saver
   class: AutoSaver
+  dependencies: oauth_callback_broker
   monzo_client_id: !secret monzo_auto_saver_client_id
   monzo_client_secret: !secret monzo_auto_saver_client_secret
   savings_pot_id: !secret monzo_savings_pot_id
@@ -163,10 +170,12 @@ monzo_auto_saver:
   truelayer_client_secret: !secret truelayer_client_secret
   truelayer_reauth_var: var.truelayer_reauth_amex_auto_saver
   monzo_reauth_var: var.monzo_reauth_auto_saver
+  spotify_reauth_var: var.spotify_reauth_auto_saver
 
 monzo_credit_card_pot_manager:
   module: credit_card_pot_manager
   class: CreditCardPotManager
+  dependencies: oauth_callback_broker
   client_id: !secret monzo_client_id
   client_secret: !secret monzo_client_secret
   reauth_var: var.monzo_reauth_cc_pot_top_up
@@ -176,14 +185,17 @@ monzo_credit_card_pot_manager:
 spotify_track_processor:
   module: track_processor
   class: SpotifyTrackProcessor
+  dependencies: oauth_callback_broker
   client_id: !secret spotify_pyscript_client_id
   client_secret: !secret spotify_pyscript_client_secret
+  reauth_var: var.spotify_reauth_track_processor
 
 # TrueLayer Variables
 
 amex_balance_getter:
   module: bank_balance
   class: BankBalanceGetter
+  dependencies: oauth_callback_broker
   bank_ref: AMEX
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
@@ -194,6 +206,7 @@ amex_balance_getter:
 amex_vic_balance_getter:
   module: bank_balance
   class: BankBalanceGetter
+  dependencies: oauth_callback_broker
   bank_ref: AMEX
   variant_ref: amex_vic
   notify_script: script.notify_vic
@@ -206,6 +219,7 @@ amex_vic_balance_getter:
 hsbc_balance_getter:
   module: bank_balance
   class: BankBalanceGetter
+  dependencies: oauth_callback_broker
   bank_ref: HSBC
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
@@ -227,6 +241,7 @@ hsbc_balance_getter:
 santander_balance_getter:
   module: bank_balance
   class: BankBalanceGetter
+  dependencies: oauth_callback_broker
   bank_ref: SANTANDER
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
@@ -237,6 +252,7 @@ santander_balance_getter:
 starling_balance_getter:
   module: bank_balance
   class: BankBalanceGetter
+  dependencies: oauth_callback_broker
   bank_ref: STARLING
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
@@ -247,6 +263,7 @@ starling_balance_getter:
 starling_joint_balance_getter:
   module: bank_balance
   class: BankBalanceGetter
+  dependencies: oauth_callback_broker
   bank_ref: STARLING_JOINT
   client_id: !secret truelayer_client_id
   client_secret: !secret truelayer_client_secret
