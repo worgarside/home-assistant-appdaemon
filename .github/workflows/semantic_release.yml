@@ -53,7 +53,7 @@ jobs:
 
       - name: Python Semantic Release
         id: python-semantic-release
-        uses: python-semantic-release/python-semantic-release@v10.5.3
+        uses: python-semantic-release/python-semantic-release@v10.6.1
         with:
           github_token: ${{ secrets.WORGARSIDE_DEV_TOKEN }}
           git_committer_name: worgarside-dev
