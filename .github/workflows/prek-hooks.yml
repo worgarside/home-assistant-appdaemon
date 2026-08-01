@@ -43,7 +43,7 @@ jobs:
 
       - name: Run prek
         id: run-prek
-        uses: j178/prek-action@v2
+        uses: j178/prek-action@v2.0.6
         continue-on-error: true
         with:
           prek-version: 0.3.11
