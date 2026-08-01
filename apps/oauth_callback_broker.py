@@ -22,7 +22,6 @@ from wg_utilities.clients.oauth_client import OAuthClient, OAuthCredentials
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
 
-CALLBACK_URI: Final[str] = "https://oauth.worgarsi.de/app/oauth-callback"
 PENDING_FLOW_TTL_SECONDS: Final[int] = 15 * 60
 PENDING_FLOW_DB: Final[Path] = Path(
     "/data/oauth_callback/pending_flows.sqlite3",
@@ -457,7 +456,10 @@ class OAuthCallbackBroker(Hass):
         # authorization codes on this route.
         getLogger("aiohttp.access").disabled = True
         self.store = PendingFlowStore(Path(self.args.get("state_db", PENDING_FLOW_DB)))
-        self.redirect_uri = str(self.args.get("redirect_uri", CALLBACK_URI))
+        redirect_uri = self.args.get("redirect_uri")
+        if not redirect_uri:
+            raise ValueError("oauth_callback_broker requires redirect_uri")
+        self.redirect_uri = str(redirect_uri)
         self.register_route(self.oauth_callback, "oauth-callback")
         self.register_route(self.oauth_complete, "oauth-complete")
 

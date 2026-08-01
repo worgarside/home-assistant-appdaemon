@@ -154,7 +154,7 @@ slc_balance:
 oauth_callback_broker:
   module: oauth_callback_broker
   class: OAuthCallbackBroker
-  redirect_uri: https://oauth.worgarsi.de/app/oauth-callback
+  redirect_uri: !secret oauth_callback_redirect_uri
   state_db: /data/oauth_callback/pending_flows.sqlite3
 
 monzo_auto_saver:
