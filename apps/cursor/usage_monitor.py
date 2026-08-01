@@ -18,9 +18,7 @@ from requests import HTTPError, RequestException, Response, Session
 
 CURSOR_API_BASE: Final[str] = "https://cursor.com"
 DEFAULT_POLL_INTERVAL: Final[int] = 5 * 60
-DEFAULT_TOKEN_PATH: Final[Path] = Path(
-    "/homeassistant/.wg-utilities/cursor/session_token",
-)
+DEFAULT_TOKEN_PATH: Final[Path] = Path("/data/cursor/session_token")
 HTTP_TIMEOUT_SECONDS: Final[int] = 30
 REMOVED_SENSOR_OBJECT_IDS: Final[tuple[str, ...]] = ()
 
@@ -246,6 +244,7 @@ class CursorUsageMonitor(hass.Hass):
     def _persist_token(self, token: str) -> None:
         """Atomically persist the token with owner-only permissions."""
         self.token_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.token_path.parent.chmod(0o700)
         temporary_path = self.token_path.with_suffix(".tmp")
         temporary_path.write_text(token, encoding="utf-8")
         temporary_path.chmod(0o600)

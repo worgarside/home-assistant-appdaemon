@@ -7,6 +7,11 @@ and sends it to the local-only Home Assistant webhook used by
 The helper does not modify Cursor's database, store another local copy of the token,
 or put the token in either repository.
 
+AppDaemon validates the token received by the webhook and stores it at
+`/data/cursor/session_token`. The add-on's private `/data` directory persists across
+restarts and upgrades without placing the runtime credential in Home Assistant's
+shared configuration or the AppDaemon repository.
+
 ## Install
 
 Cursor must be installed and signed in. The Home Assistant webhook must also be
