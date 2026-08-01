@@ -62,6 +62,7 @@ class BankBalanceGetter(Hass):
                 client_id=client_id,
                 client_secret=self.args["client_secret"],
                 creds_cache_path=credentials_cache_path,
+                use_existing_credentials_only=True,
                 bank=self.bank,
             )
         else:
@@ -69,6 +70,7 @@ class BankBalanceGetter(Hass):
                 client_id=client_id,
                 client_secret=self.args["client_secret"],
                 creds_cache_dir=CREDENTIALS_CACHE_DIR,
+                use_existing_credentials_only=True,
                 bank=self.bank,
             )
 
@@ -148,6 +150,23 @@ class BankBalanceGetter(Hass):
 
         return variable_id
 
+    def _handle_credential_error(self, err: HTTPError | RuntimeError) -> bool:
+        """Notify the appropriate user when TrueLayer needs authorisation."""
+        needs_authorisation = (
+            isinstance(err, RuntimeError)
+            and str(err).startswith("No existing credentials found")
+        ) or (
+            isinstance(err, HTTPError)
+            and err.response.url == self.client.ACCESS_TOKEN_ENDPOINT
+            and err.response.status_code == HTTPStatus.BAD_REQUEST
+        )
+
+        if not needs_authorisation:
+            return False
+
+        self.send_auth_link_notification()
+        return True
+
     def initialize_entities(self) -> None:
         """Initialize the TrueLayer cards and/or accounts."""
         for entity_type in EntityType:
@@ -193,11 +212,11 @@ class BankBalanceGetter(Hass):
                         entity_id,
                     )
                     continue
-            except HTTPError as err:
-                if not (
-                    err.response.url == self.client.ACCESS_TOKEN_ENDPOINT
-                    and err.response.status_code == HTTPStatus.BAD_REQUEST
-                ):
+            except (HTTPError, RuntimeError) as err:
+                if self._handle_credential_error(err):
+                    return
+
+                if isinstance(err, HTTPError):
                     self.error(
                         "Error response (%s %s) from %s: %s",
                         err.response.status_code,
@@ -205,14 +224,8 @@ class BankBalanceGetter(Hass):
                         err.response.url,
                         err.response.text,
                     )
-                    raise
 
-                try:
-                    self.send_auth_link_notification()
-                except Exception as login_err:
-                    raise login_err from err
-                else:
-                    return
+                raise
 
             self.entities[entity_type][entity_ref] = entity  # type: ignore[assignment]
 
