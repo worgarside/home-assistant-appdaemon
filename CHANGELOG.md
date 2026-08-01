@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v0.27.1 (2026-08-01)
+
+### Bug Fixes
+
+- Secure token storage for persistence
+  ([#277](https://github.com/worgarside/home-assistant-appdaemon/pull/277),
+  [`63bf576`](https://github.com/worgarside/home-assistant-appdaemon/commit/63bf5766e6a0ca78d482ba1267263f97dc0e8c9d))
+
+
 ## v0.27.0 (2026-07-30)
 
 ### Features
