@@ -379,19 +379,19 @@ class PendingFlowStore:
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db_path.parent.chmod(0o700)
-        with closing(self._connect()) as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute(
                 """
-                CREATE TABLE IF NOT EXISTS pending_flows (
-                    state TEXT PRIMARY KEY,
-                    target_app TEXT NOT NULL,
-                    flow_ref TEXT NOT NULL,
-                    provider TEXT NOT NULL,
-                    created_at REAL NOT NULL,
-                    expires_at REAL NOT NULL,
-                    UNIQUE (target_app, flow_ref)
-                )
-                """,
+                    CREATE TABLE IF NOT EXISTS pending_flows (
+                        state TEXT PRIMARY KEY,
+                        target_app TEXT NOT NULL,
+                        flow_ref TEXT NOT NULL,
+                        provider TEXT NOT NULL,
+                        created_at REAL NOT NULL,
+                        expires_at REAL NOT NULL,
+                        UNIQUE (target_app, flow_ref)
+                    )
+                    """,
             )
         self.db_path.chmod(0o600)
 
@@ -413,7 +413,7 @@ class PendingFlowStore:
         created_at = time.time() if now is None else now
         expires_at = created_at + PENDING_FLOW_TTL_SECONDS
 
-        with closing(self._connect()) as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 "DELETE FROM pending_flows WHERE target_app = ? AND flow_ref = ?",
@@ -421,10 +421,10 @@ class PendingFlowStore:
             )
             connection.execute(
                 """
-                INSERT INTO pending_flows (
-                    state, target_app, flow_ref, provider, created_at, expires_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
+                    INSERT INTO pending_flows (
+                        state, target_app, flow_ref, provider, created_at, expires_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
                 (
                     state,
                     target_app,
@@ -441,18 +441,21 @@ class PendingFlowStore:
         """Atomically consume a state, rejecting unknown, expired, and replayed values."""
         consumed_at = time.time() if now is None else now
 
-        with closing(self._connect()) as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 """
-                SELECT target_app, flow_ref, provider, created_at, expires_at
-                FROM pending_flows
-                WHERE state = ?
-                """,
+                    SELECT target_app, flow_ref, provider, created_at, expires_at
+                    FROM pending_flows
+                    WHERE state = ?
+                    """,
                 (state,),
             ).fetchone()
             if row is not None:
-                connection.execute("DELETE FROM pending_flows WHERE state = ?", (state,))
+                connection.execute(
+                    "DELETE FROM pending_flows WHERE state = ?",
+                    (state,),
+                )
             connection.execute(
                 "DELETE FROM pending_flows WHERE expires_at <= ?",
                 (consumed_at,),
