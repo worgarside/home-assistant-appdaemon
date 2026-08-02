@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.28.0 (2026-08-02)
+
+### Bug Fixes
+
+- Handle missing credentials gracefully
+  ([#278](https://github.com/worgarside/home-assistant-appdaemon/pull/278),
+  [`ddd38ce`](https://github.com/worgarside/home-assistant-appdaemon/commit/ddd38ce47898bd722d2a3677be4d5de130803b3f))
+
+### Features
+
+- Add streak to habit notifications
+  ([#280](https://github.com/worgarside/home-assistant-appdaemon/pull/280),
+  [`6276218`](https://github.com/worgarside/home-assistant-appdaemon/commit/62762189d530ae63cc9bb05e20925934a747eca4))
+
+- Implement OAuth broker for improved authorization
+  ([#279](https://github.com/worgarside/home-assistant-appdaemon/pull/279),
+  [`13612b8`](https://github.com/worgarside/home-assistant-appdaemon/commit/13612b8ff6ceb110a18266beb41c0e0697ecca66))
+
+
 ## v0.27.1 (2026-08-01)
 
 ### Bug Fixes
