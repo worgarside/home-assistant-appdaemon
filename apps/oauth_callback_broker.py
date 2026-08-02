@@ -7,6 +7,7 @@ import html
 import secrets
 import sqlite3
 import time
+from contextlib import closing
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import wraps
@@ -378,7 +379,7 @@ class PendingFlowStore:
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db_path.parent.chmod(0o700)
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS pending_flows (
@@ -412,7 +413,7 @@ class PendingFlowStore:
         created_at = time.time() if now is None else now
         expires_at = created_at + PENDING_FLOW_TTL_SECONDS
 
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 "DELETE FROM pending_flows WHERE target_app = ? AND flow_ref = ?",
@@ -440,7 +441,7 @@ class PendingFlowStore:
         """Atomically consume a state, rejecting unknown, expired, and replayed values."""
         consumed_at = time.time() if now is None else now
 
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 """
@@ -589,11 +590,12 @@ class OAuthCallbackBroker(Hass):
                 code,
                 self.redirect_uri,
             )
-        except Exception:
+        except Exception as err:
             self.error(
-                "OAuth exchange failed for app %s flow %s",
+                "OAuth exchange failed for app %s flow %s: %s",
                 flow.target_app,
                 flow.flow_ref,
+                err,
             )
             await self._restart_flow(flow)
             return self._result_redirect(

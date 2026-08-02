@@ -124,7 +124,9 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
                     ),
                     trigger_entity=self.args["truelayer_reauth_trigger"],
                     auth_params=common_auth_params,
-                    on_authorized=self.initialize_amex,
+                    on_authorized=lambda: self.initialize_amex(
+                        send_notification=False,
+                    ),
                 ),
                 OAuthFlow(
                     ref="spotify",
@@ -135,7 +137,7 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
                     notification_title="Spotify (auto-saver) Access Token Expired",
                     notification_message="Spotify access token has expired!",
                     trigger_entity=self.args["spotify_reauth_trigger"],
-                    auth_params=common_auth_params,
+                    auth_params={"show_dialog": "true"},
                     on_authorized=lambda: self.initialize_spotify(
                         send_notification=False,
                     ),
@@ -206,16 +208,21 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
                 "-",
             )
 
-    def initialize_amex(self) -> None:
+    def initialize_amex(self, *, send_notification: bool = True) -> bool:
         """Initialize the Amex card."""
         try:
             self.amex_card = self.truelayer_client.list_cards()[0]
         except (HTTPError, RuntimeError) as err:
-            if self.oauth.handle_authorization_error("truelayer", err):
-                return
+            if self.oauth.handle_authorization_error(
+                "truelayer",
+                err,
+                start_flow=send_notification,
+            ):
+                return False
             raise
 
         self.oauth.clear("truelayer")
+        return True
 
     def initialize_monzo(self, *, send_notification: bool = True) -> bool:
         """Initialize the Monzo client."""
@@ -347,6 +354,7 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
             ]
         except (HTTPError, RuntimeError) as err:
             if self.oauth.handle_authorization_error("spotify", err):
+                self._spotify_ready = False
                 return 0, []
             raise
 
@@ -503,17 +511,16 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
                     ),
                 )
             except (HTTPError, RuntimeError) as err:
-                if self.oauth.handle_authorization_error("truelayer", err):
-                    return
-                raise
+                if not self.oauth.handle_authorization_error("truelayer", err):
+                    raise
+            else:
+                self._amex_transactions.extend(amex_txs)
 
-            self._amex_transactions.extend(amex_txs)
-
-            self.log(
-                "Found %s new transactions for Amex (%i total)",
-                len(amex_txs),
-                len(self._amex_transactions),
-            )
+                self.log(
+                    "Found %s new transactions for Amex (%i total)",
+                    len(amex_txs),
+                    len(self._amex_transactions),
+                )
 
         try:
             monzo_txs = self.monzo_client.current_account.list_transactions(

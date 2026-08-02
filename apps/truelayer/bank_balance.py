@@ -98,7 +98,9 @@ class BankBalanceGetter(OAuthFlowConsumerMixin, Hass):
                     trigger_entity=self.args["reauth_trigger"],
                     notify_script=self.notify_script,
                     auth_params={"access_type": "offline", "prompt": "consent"},
-                    on_authorized=self.initialize_entities,
+                    on_authorized=lambda: self.initialize_entities(
+                        send_notification=False,
+                    ),
                 ),
             ],
         )
@@ -177,21 +179,37 @@ class BankBalanceGetter(OAuthFlowConsumerMixin, Hass):
 
         return variable_id
 
-    def _handle_credential_error(self, err: HTTPError | RuntimeError) -> bool:
+    def _handle_credential_error(
+        self,
+        err: HTTPError | RuntimeError,
+        *,
+        start_flow: bool = True,
+    ) -> bool:
         """Notify the appropriate user when TrueLayer needs authorisation."""
-        return self.oauth.handle_authorization_error(self.balance_slug, err)
+        return self.oauth.handle_authorization_error(
+            self.balance_slug,
+            err,
+            start_flow=start_flow,
+        )
 
-    def initialize_entities(self) -> None:
+    def initialize_entities(self, *, send_notification: bool = True) -> bool:
         """Initialize the TrueLayer cards and/or accounts."""
         for entity_type in EntityType:
-            self._initialize_entities(entity_type)
+            if not self._initialize_entities(
+                entity_type,
+                start_flow=send_notification,
+            ):
+                return False
 
         self.log("Initialized: %s", dumps(self.entities, default=str))
+        return True
 
     def _initialize_entities(
         self,
         entity_type: EntityType,
-    ) -> None:
+        *,
+        start_flow: bool = True,
+    ) -> bool:
         self.entities.setdefault(entity_type, {})
 
         get_entity_by_id = (
@@ -227,8 +245,8 @@ class BankBalanceGetter(OAuthFlowConsumerMixin, Hass):
                     )
                     continue
             except (HTTPError, RuntimeError) as err:
-                if self._handle_credential_error(err):
-                    return
+                if self._handle_credential_error(err, start_flow=start_flow):
+                    return False
 
                 if isinstance(err, HTTPError):
                     self.error(
@@ -258,6 +276,8 @@ class BankBalanceGetter(OAuthFlowConsumerMixin, Hass):
                 )
 
             self.oauth.clear(self.balance_slug)
+
+        return True
 
     def error(self, msg: str, *args: Any, **kwargs: Any) -> None:
         """Override the error method to prepend the bank name."""

@@ -100,16 +100,14 @@ class SpotifyTrackProcessor(OAuthFlowConsumerMixin, Hass):
         """Initialize Spotify resources, or start brokered authorization."""
         try:
             _ = self.spotify.current_user.playlists  # Pre-load playlists
-        except RuntimeError as err:
-            if not str(err).startswith("No existing credentials found"):
-                raise
-            if send_notification:
-                self.oauth.start("track_processor")
-            return False
-        except HTTPError:
-            if send_notification:
-                self.oauth.start("track_processor")
-            return False
+        except (HTTPError, RuntimeError) as err:
+            if self.oauth.handle_authorization_error(
+                "track_processor",
+                err,
+                start_flow=send_notification,
+            ):
+                return False
+            raise
 
         self.log("Logged in as %s", self.spotify.current_user)
 
