@@ -1198,13 +1198,19 @@ class HabitTracker(hass.Hass):
             if config.habit_type is HabitType.BINARY
             else f"INCREMENT_HABIT__{user.upper()}__{slot}"
         )
+        streak = calculate_streak(
+            self.store.data.users[user].completions.get(slot, {}),
+            today=self._aware_now().date(),
+            min_days_per_week=config.streak_min_days_per_week,
+        ).streak
+        title = f"{config.name} · {streak}-day streak"
         user_config = self._user_config(user)
         try:
             self.call_service(
                 "script/turn_on",
                 entity_id=user_config["notify_script"],
                 variables={
-                    "title": config.name,
+                    "title": title,
                     "message": message,
                     "notification_id": f"{user}_habit_{slot}_reminder",
                     "mobile_notification_icon": "mdi:checkbox-marked-circle-outline",
