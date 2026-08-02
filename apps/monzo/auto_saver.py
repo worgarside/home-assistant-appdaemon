@@ -102,9 +102,7 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
                     notification_message="Monzo access token has expired!",
                     trigger_entity=self.args["monzo_reauth_trigger"],
                     auth_params=common_auth_params,
-                    on_authorized=lambda: self.initialize_monzo(
-                        send_notification=False,
-                    ),
+                    on_authorized=self.initialize_monzo_after_authorization,
                     retry_policy=OAuthRetryPolicy(),
                 ),
                 OAuthFlow(
@@ -228,6 +226,13 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
         """Initialize the Monzo client."""
         try:
             pot = self.monzo_client.get_pot_by_id(self.args["savings_pot_id"])
+
+            # Pot access can become available before the user has approved
+            # transaction access in the Monzo app. Check the endpoint the
+            # auto-saver actually needs before considering reauth complete.
+            self.monzo_client.current_account.list_transactions(
+                from_datetime=datetime.now(UTC) - timedelta(seconds=1),
+            )
         except (HTTPError, RuntimeError) as err:
             if self.oauth.handle_authorization_error(
                 "monzo",
@@ -245,6 +250,14 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
 
         self.oauth.clear("monzo")
 
+        return True
+
+    def initialize_monzo_after_authorization(self) -> bool:
+        """Resume initialization after Monzo grants transaction access."""
+        if not self.initialize_monzo(send_notification=False):
+            return False
+
+        self.initialize_entities()
         return True
 
     def initialize_spotify(self, *, send_notification: bool = True) -> bool:
