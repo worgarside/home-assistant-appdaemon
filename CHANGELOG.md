@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v0.29.0 (2026-08-02)
+
+### Features
+
+- Improve Monzo auth flow and db transactions
+  ([#281](https://github.com/worgarside/home-assistant-appdaemon/pull/281),
+  [`350c06f`](https://github.com/worgarside/home-assistant-appdaemon/commit/350c06fedb2b62007bc3350abdcf3b34e5379f43))
+
+
 ## v0.28.0 (2026-08-02)
 
 ### Bug Fixes
