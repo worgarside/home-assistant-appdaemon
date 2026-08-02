@@ -17,6 +17,7 @@ from oauth_callback_broker import (
     OAuthFlowConsumerMixin,
     OAuthFlowManager,
     OAuthProvider,
+    recover_oauth_errors,
 )
 from requests import HTTPError
 from wg_utilities.clients import SpotifyClient
@@ -154,6 +155,7 @@ class SpotifyTrackProcessor(OAuthFlowConsumerMixin, Hass):
         self.oauth.clear("track_processor")
         return True
 
+    @recover_oauth_errors("track_processor")
     def add_track_to_playlist(
         self,
         event_type: str,
@@ -192,6 +194,7 @@ class SpotifyTrackProcessor(OAuthFlowConsumerMixin, Hass):
 
         self.spotify.add_tracks_to_playlist([track], self.playlists[actionable])
 
+    @recover_oauth_errors("track_processor")
     def process_liked_tracks(self, _: dict[str, Any]) -> None:
         """Add recently liked tracks to dynamically generated playlists.
 
@@ -301,6 +304,7 @@ class SpotifyTrackProcessor(OAuthFlowConsumerMixin, Hass):
                 message=message,
             )
 
+    @recover_oauth_errors("track_processor")
     def process_now_playing(
         self,
         entity: str,
@@ -361,6 +365,7 @@ class SpotifyTrackProcessor(OAuthFlowConsumerMixin, Hass):
         else:
             self.error("No matching track found for search term '%s'", search_term)
 
+    @recover_oauth_errors("track_processor")
     def update_tempo_variable(
         self,
         entity: str,
@@ -426,6 +431,7 @@ class SpotifyTrackProcessor(OAuthFlowConsumerMixin, Hass):
                 force_update=True,
             )
 
+    @recover_oauth_errors("track_processor")
     def update_top_track_playlists(self, _: dict[str, Any]) -> None:
         """Update the top tracks playlists for the current user."""
         time_range: Literal["short_term", "medium_term", "long_term"]

@@ -9,6 +9,8 @@ import sqlite3
 import time
 from dataclasses import dataclass, field
 from enum import StrEnum
+from functools import wraps
+from http import HTTPStatus
 from json import dumps
 from logging import getLogger
 from pathlib import Path
@@ -17,6 +19,7 @@ from urllib.parse import urlencode
 
 from aiohttp import web
 from appdaemon.plugins.hass.hassapi import Hass
+from requests import HTTPError
 from wg_utilities.clients.oauth_client import OAuthClient, OAuthCredentials
 
 if TYPE_CHECKING:
@@ -191,6 +194,42 @@ class OAuthFlowManager:
             generation=generation,
         )
 
+    def handle_authorization_error(
+        self,
+        flow_ref: str,
+        error: HTTPError | RuntimeError,
+        *,
+        start_flow: bool = True,
+    ) -> bool:
+        """Start reauthorization when an API request rejects the credentials.
+
+        Returns ``True`` only when the error was handled. Callers must re-raise
+        errors for which this method returns ``False``.
+        """
+        flow = self._get_flow(flow_ref)
+        if isinstance(error, RuntimeError):
+            needs_authorization = str(error).startswith("No existing credentials found")
+        else:
+            response = error.response
+            needs_authorization = response is not None and (
+                response.status_code in {HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN}
+                or (
+                    response.status_code == HTTPStatus.BAD_REQUEST
+                    and response.url == flow.client.access_token_endpoint
+                )
+            )
+
+        if not needs_authorization:
+            return False
+
+        if start_flow:
+            self.app.log(
+                "OAuth authorization required for %s after an API error; starting reauth",
+                flow_ref,
+            )
+            self.start(flow_ref)
+        return True
+
     def _expire_notification_callback(self, kwargs: dict[str, Any]) -> None:
         """Dismiss a notification when its corresponding authorization link expires."""
         flow_ref = str(kwargs["flow_ref"])
@@ -310,6 +349,26 @@ class OAuthFlowConsumerMixin:
     def oauth_authorization_failed(self, flow_ref: str) -> None:
         """Issue a fresh authorization link after a rejected callback."""
         self.oauth.start(flow_ref)
+
+
+def recover_oauth_errors(
+    flow_ref: str,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Wrap an AppDaemon callback to turn auth errors into a reauth flow."""
+
+    def decorator(callback: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(callback)
+        def wrapped(consumer: OAuthFlowConsumerMixin, *args: Any, **kwargs: Any) -> Any:
+            try:
+                return callback(consumer, *args, **kwargs)
+            except (HTTPError, RuntimeError) as err:
+                if consumer.oauth.handle_authorization_error(flow_ref, err):
+                    return None
+                raise
+
+        return wrapped
+
+    return decorator
 
 
 class PendingFlowStore:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from http import HTTPStatus
 from json import dumps
 from pathlib import Path
 from re import Pattern
@@ -113,17 +112,22 @@ class BankBalanceGetter(OAuthFlowConsumerMixin, Hass):
 
         def update_entity_balances(_: dict[str, Any]) -> None:
             """Loop through the account/card IDs and retrieve their balances."""
-            for entity_ref, entity in self.entities[entity_key].items():
-                variable_id = self._get_variable_id(entity_ref)
+            try:
+                for entity_ref, entity in self.entities[entity_key].items():
+                    variable_id = self._get_variable_id(entity_ref)
 
-                self.log("Updating `%s` balance", variable_id)
+                    self.log("Updating `%s` balance", variable_id)
 
-                self.call_service(
-                    "var/set",
-                    entity_id=variable_id,
-                    value=entity.balance,
-                    force_update=True,
-                )
+                    self.call_service(
+                        "var/set",
+                        entity_id=variable_id,
+                        value=entity.balance,
+                        force_update=True,
+                    )
+            except (HTTPError, RuntimeError) as err:
+                if self._handle_credential_error(err):
+                    return
+                raise
 
             self.log(
                 "Updated entity balances: %s",
@@ -175,20 +179,7 @@ class BankBalanceGetter(OAuthFlowConsumerMixin, Hass):
 
     def _handle_credential_error(self, err: HTTPError | RuntimeError) -> bool:
         """Notify the appropriate user when TrueLayer needs authorisation."""
-        needs_authorisation = (
-            isinstance(err, RuntimeError)
-            and str(err).startswith("No existing credentials found")
-        ) or (
-            isinstance(err, HTTPError)
-            and err.response.url == self.client.ACCESS_TOKEN_ENDPOINT
-            and err.response.status_code == HTTPStatus.BAD_REQUEST
-        )
-
-        if not needs_authorisation:
-            return False
-
-        self.oauth.start(self.balance_slug)
-        return True
+        return self.oauth.handle_authorization_error(self.balance_slug, err)
 
     def initialize_entities(self) -> None:
         """Initialize the TrueLayer cards and/or accounts."""
@@ -280,5 +271,10 @@ class BankBalanceGetter(OAuthFlowConsumerMixin, Hass):
         """Refresh the access token."""
         self.log("Refreshing access token", self.bank)
 
-        self.client.refresh_access_token()
+        try:
+            self.client.refresh_access_token()
+        except (HTTPError, RuntimeError) as err:
+            if self._handle_credential_error(err):
+                return
+            raise
         self.log("Refreshed access token")

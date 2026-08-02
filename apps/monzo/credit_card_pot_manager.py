@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from json import JSONDecodeError, dumps
+from json import dumps
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, cast
 
@@ -221,11 +221,16 @@ class CreditCardPotManager(OAuthFlowConsumerMixin, Hass):
             self.error("Invalid top up amount %s", top_up_amount)
             return
 
-        self.client.deposit_into_pot(
-            self.credit_card_pot,
-            amount_pence=top_up_amount,
-            dedupe_id=datetime.now(UTC).strftime(f"{self.name}-%Y%m%d"),
-        )
+        try:
+            self.client.deposit_into_pot(
+                self.credit_card_pot,
+                amount_pence=top_up_amount,
+                dedupe_id=datetime.now(UTC).strftime(f"{self.name}-%Y%m%d"),
+            )
+        except (HTTPError, RuntimeError) as err:
+            if self.oauth.handle_authorization_error("cc_pot_top_up", err):
+                return
+            raise
 
         self.log("Topped up credit card pot by %i", top_up_amount)
 
@@ -233,25 +238,13 @@ class CreditCardPotManager(OAuthFlowConsumerMixin, Hass):
         """Initialize the CC pot, or start the auth flow."""
         try:
             credit_card_pot = self.client.get_pot_by_name("credit cards")
-        except RuntimeError as err:
-            if str(err).startswith("No existing credentials found"):
-                if send_notification:
-                    self.oauth.start("cc_pot_top_up")
+        except (HTTPError, RuntimeError) as err:
+            if self.oauth.handle_authorization_error(
+                "cc_pot_top_up",
+                err,
+                start_flow=send_notification,
+            ):
                 return False
-            raise
-        except HTTPError as err:
-            try:
-                data = err.response.json()
-            except JSONDecodeError:
-                self.error("Error response from Monzo: %s", err.response.text)
-                raise err from None
-
-            if data.get("code") == "forbidden.insufficient_permissions":
-                if send_notification:
-                    self.oauth.start("cc_pot_top_up")
-                return False
-
-            self.error(err.response.text)
             raise
 
         if not credit_card_pot:

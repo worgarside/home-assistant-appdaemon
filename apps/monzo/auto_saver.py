@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from http import HTTPStatus
-from json import JSONDecodeError, dumps
+from json import dumps
 from pathlib import Path
 from re import IGNORECASE, Pattern
 from re import compile as re_compile
@@ -211,22 +210,10 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
         """Initialize the Amex card."""
         try:
             self.amex_card = self.truelayer_client.list_cards()[0]
-        except RuntimeError as err:
-            if str(err).startswith("No existing credentials found"):
-                self.oauth.start("truelayer")
+        except (HTTPError, RuntimeError) as err:
+            if self.oauth.handle_authorization_error("truelayer", err):
                 return
             raise
-        except HTTPError as err:
-            if (
-                err.response.url == self.truelayer_client.ACCESS_TOKEN_ENDPOINT
-                and err.response.status_code == HTTPStatus.BAD_REQUEST
-            ):
-                try:
-                    self.oauth.start("truelayer")
-                except Exception as login_err:
-                    raise login_err from err
-                else:
-                    return
 
         self.oauth.clear("truelayer")
 
@@ -234,25 +221,13 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
         """Initialize the Monzo client."""
         try:
             pot = self.monzo_client.get_pot_by_id(self.args["savings_pot_id"])
-        except RuntimeError as err:
-            if str(err).startswith("No existing credentials found"):
-                if send_notification:
-                    self.oauth.start("monzo")
+        except (HTTPError, RuntimeError) as err:
+            if self.oauth.handle_authorization_error(
+                "monzo",
+                err,
+                start_flow=send_notification,
+            ):
                 return False
-            raise
-        except HTTPError as err:
-            try:
-                data = err.response.json()
-            except JSONDecodeError:
-                self.error("Error response from Monzo: %s", err.response.text)
-                raise err from None
-
-            if data.get("code") == "forbidden.insufficient_permissions":
-                if send_notification:
-                    self.oauth.start("monzo")
-                return False
-
-            self.error(err.response.text)
             raise
 
         if not pot:
@@ -269,16 +244,14 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
         """Validate Spotify credentials, or start the brokered auth flow."""
         try:
             _ = self.spotify_client.current_user.id
-        except RuntimeError as err:
-            if not str(err).startswith("No existing credentials found"):
-                raise
-            if send_notification:
-                self.oauth.start("spotify")
-            return False
-        except HTTPError:
-            if send_notification:
-                self.oauth.start("spotify")
-            return False
+        except (HTTPError, RuntimeError) as err:
+            if self.oauth.handle_authorization_error(
+                "spotify",
+                err,
+                start_flow=send_notification,
+            ):
+                return False
+            raise
 
         self._spotify_ready = True
         self.oauth.clear("spotify")
@@ -364,13 +337,18 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
 
     def _get_spotify_savings(self) -> tuple[int, list[str]]:
         """'Pay' 79p a song to savings."""
-        liked_tracks = [
-            track
-            for track in self.spotify_client.current_user.get_recently_liked_tracks(
-                day_limit=(datetime.now(UTC) - self.last_auto_save).days + 1,
-            )
-            if track.metadata["saved_at"] >= self.last_auto_save
-        ]
+        try:
+            liked_tracks = [
+                track
+                for track in self.spotify_client.current_user.get_recently_liked_tracks(
+                    day_limit=(datetime.now(UTC) - self.last_auto_save).days + 1,
+                )
+                if track.metadata["saved_at"] >= self.last_auto_save
+            ]
+        except (HTTPError, RuntimeError) as err:
+            if self.oauth.handle_authorization_error("spotify", err):
+                return 0, []
+            raise
 
         return 79 * len(liked_tracks), [str(track) for track in liked_tracks]
 
@@ -473,11 +451,16 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
             )
             return
 
-        self.monzo_client.deposit_into_pot(
-            self.savings_pot,
-            amount_pence=save_amount_pence,
-            dedupe_id=f"{self.name}-{auto_save_last_changed}",
-        )
+        try:
+            self.monzo_client.deposit_into_pot(
+                self.savings_pot,
+                amount_pence=save_amount_pence,
+                dedupe_id=f"{self.name}-{auto_save_last_changed}",
+            )
+        except (HTTPError, RuntimeError) as err:
+            if self.oauth.handle_authorization_error("monzo", err):
+                return
+            raise
 
         self.call_service(
             "input_datetime/set_datetime",
@@ -507,17 +490,22 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
     def update_transaction_records(self) -> None:
         """Get the newest transactions from Amex/Monzo."""
         if hasattr(self, "amex_card"):
-            amex_txs = self.amex_card.get_transactions(
-                from_datetime=(
-                    self.last_auto_save
-                    if not self._amex_transactions
-                    else max(
-                        self._amex_transactions,
-                        key=lambda tx: tx.timestamp,
-                    ).timestamp
-                    + timedelta(seconds=1)
-                ),
-            )
+            try:
+                amex_txs = self.amex_card.get_transactions(
+                    from_datetime=(
+                        self.last_auto_save
+                        if not self._amex_transactions
+                        else max(
+                            self._amex_transactions,
+                            key=lambda tx: tx.timestamp,
+                        ).timestamp
+                        + timedelta(seconds=1)
+                    ),
+                )
+            except (HTTPError, RuntimeError) as err:
+                if self.oauth.handle_authorization_error("truelayer", err):
+                    return
+                raise
 
             self._amex_transactions.extend(amex_txs)
 
@@ -527,14 +515,19 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
                 len(self._amex_transactions),
             )
 
-        monzo_txs = self.monzo_client.current_account.list_transactions(
-            from_datetime=(
-                self.last_auto_save
-                if not self._monzo_transactions
-                else max(self._monzo_transactions, key=lambda tx: tx.created).created
-                + timedelta(seconds=1)
-            ),
-        )
+        try:
+            monzo_txs = self.monzo_client.current_account.list_transactions(
+                from_datetime=(
+                    self.last_auto_save
+                    if not self._monzo_transactions
+                    else max(self._monzo_transactions, key=lambda tx: tx.created).created
+                    + timedelta(seconds=1)
+                ),
+            )
+        except (HTTPError, RuntimeError) as err:
+            if self.oauth.handle_authorization_error("monzo", err):
+                return
+            raise
 
         self._monzo_transactions.extend(monzo_txs)
 
