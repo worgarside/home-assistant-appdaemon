@@ -2,20 +2,23 @@
 
 from __future__ import annotations
 
-import string
 from enum import StrEnum
-from http import HTTPStatus
 from json import dumps
 from pathlib import Path
 from re import Pattern
 from re import compile as re_compile
-from typing import TYPE_CHECKING, Any, Final
-from urllib import parse
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from appdaemon.plugins.hass.hassapi import Hass
+from oauth_callback_broker import (
+    OAuthCallbackBroker,
+    OAuthFlow,
+    OAuthFlowConsumerMixin,
+    OAuthFlowManager,
+    OAuthProvider,
+)
 from requests import HTTPError
 from wg_utilities.clients import TrueLayerClient
-from wg_utilities.clients.oauth_client import OAuthCredentials
 from wg_utilities.clients.truelayer import Account, Bank, Card
 
 if TYPE_CHECKING:
@@ -37,7 +40,7 @@ class EntityType(StrEnum):
     CARD = "card"
 
 
-class BankBalanceGetter(Hass):
+class BankBalanceGetter(OAuthFlowConsumerMixin, Hass):
     """Get bank account/card balances from TrueLayer."""
 
     bank: Bank
@@ -50,11 +53,11 @@ class BankBalanceGetter(Hass):
         """Initialize the app."""
         self.bank = Bank[self.args["bank_ref"].upper().replace(" ", "_")]
         self.balance_slug = self._get_balance_slug()
-        self.auth_code_input_text = f"input_text.truelayer_auth_token_{self.balance_slug}"
-        self.redirect_uri = "https://console.truelayer.com/redirect-page"
-        self.notification_id = f"truelayer_access_token_{self.balance_slug}_expired"
-        self.reauth_var = self.args["reauth_var"]
         self.notify_script = str(self.args.get("notify_script", DEFAULT_NOTIFY_SCRIPT))
+        oauth_broker = cast(
+            "OAuthCallbackBroker",
+            self.get_app("oauth_callback_broker"),
+        )
 
         client_id = self.args["client_id"]
         if credentials_cache_path := self._get_credentials_cache_path(client_id):
@@ -75,12 +78,33 @@ class BankBalanceGetter(Hass):
             )
 
         self.entities = {}
-        self.initialize_entities()
-
-        self.listen_state(
-            self.consume_auth_token,
-            self.auth_code_input_text,
+        self._balance_timer_handles: dict[EntityType, str] = {}
+        self.oauth = OAuthFlowManager(
+            self,
+            oauth_broker,
+            [
+                OAuthFlow(
+                    ref=self.balance_slug,
+                    provider=OAuthProvider.TRUELAYER,
+                    client=self.client,
+                    reauth_var=self.args["reauth_var"],
+                    notification_id=(
+                        f"truelayer_access_token_{self.balance_slug}_expired"
+                    ),
+                    notification_title=f"{self.bank} Access Token Expired",
+                    notification_message=(
+                        f"TrueLayer access token for {self.bank} has expired!"
+                    ),
+                    trigger_entity=self.args["reauth_trigger"],
+                    notify_script=self.notify_script,
+                    auth_params={"access_type": "offline", "prompt": "consent"},
+                    on_authorized=lambda: self.initialize_entities(
+                        send_notification=False,
+                    ),
+                ),
+            ],
         )
+        self.initialize_entities()
 
     def _callback_factory(
         self,
@@ -90,17 +114,22 @@ class BankBalanceGetter(Hass):
 
         def update_entity_balances(_: dict[str, Any]) -> None:
             """Loop through the account/card IDs and retrieve their balances."""
-            for entity_ref, entity in self.entities[entity_key].items():
-                variable_id = self._get_variable_id(entity_ref)
+            try:
+                for entity_ref, entity in self.entities[entity_key].items():
+                    variable_id = self._get_variable_id(entity_ref)
 
-                self.log("Updating `%s` balance", variable_id)
+                    self.log("Updating `%s` balance", variable_id)
 
-                self.call_service(
-                    "var/set",
-                    entity_id=variable_id,
-                    value=entity.balance,
-                    force_update=True,
-                )
+                    self.call_service(
+                        "var/set",
+                        entity_id=variable_id,
+                        value=entity.balance,
+                        force_update=True,
+                    )
+            except (HTTPError, RuntimeError) as err:
+                if self._handle_credential_error(err):
+                    return
+                raise
 
             self.log(
                 "Updated entity balances: %s",
@@ -150,34 +179,37 @@ class BankBalanceGetter(Hass):
 
         return variable_id
 
-    def _handle_credential_error(self, err: HTTPError | RuntimeError) -> bool:
+    def _handle_credential_error(
+        self,
+        err: HTTPError | RuntimeError,
+        *,
+        start_flow: bool = True,
+    ) -> bool:
         """Notify the appropriate user when TrueLayer needs authorisation."""
-        needs_authorisation = (
-            isinstance(err, RuntimeError)
-            and str(err).startswith("No existing credentials found")
-        ) or (
-            isinstance(err, HTTPError)
-            and err.response.url == self.client.ACCESS_TOKEN_ENDPOINT
-            and err.response.status_code == HTTPStatus.BAD_REQUEST
+        return self.oauth.handle_authorization_error(
+            self.balance_slug,
+            err,
+            start_flow=start_flow,
         )
 
-        if not needs_authorisation:
-            return False
-
-        self.send_auth_link_notification()
-        return True
-
-    def initialize_entities(self) -> None:
+    def initialize_entities(self, *, send_notification: bool = True) -> bool:
         """Initialize the TrueLayer cards and/or accounts."""
         for entity_type in EntityType:
-            self._initialize_entities(entity_type)
+            if not self._initialize_entities(
+                entity_type,
+                start_flow=send_notification,
+            ):
+                return False
 
         self.log("Initialized: %s", dumps(self.entities, default=str))
+        return True
 
     def _initialize_entities(
         self,
         entity_type: EntityType,
-    ) -> None:
+        *,
+        start_flow: bool = True,
+    ) -> bool:
         self.entities.setdefault(entity_type, {})
 
         get_entity_by_id = (
@@ -213,8 +245,8 @@ class BankBalanceGetter(Hass):
                     )
                     continue
             except (HTTPError, RuntimeError) as err:
-                if self._handle_credential_error(err):
-                    return
+                if self._handle_credential_error(err, start_flow=start_flow):
+                    return False
 
                 if isinstance(err, HTTPError):
                     self.error(
@@ -230,67 +262,22 @@ class BankBalanceGetter(Hass):
             self.entities[entity_type][entity_ref] = entity  # type: ignore[assignment]
 
         if self.entities[entity_type]:
-            callback = self._callback_factory(entity_type)
+            if entity_type not in self._balance_timer_handles:
+                callback = self._callback_factory(entity_type)
+                self._balance_timer_handles[entity_type] = self.run_every(
+                    callback,
+                    "immediate",
+                    15 * 60,
+                )
+                self.log(
+                    "Added callback for %s balances: %s",
+                    entity_type,
+                    ", ".join(self.entities[entity_type].keys()),
+                )
 
-            self.run_every(callback, "immediate", 15 * 60)
-            self.log(
-                "Added callback for %s balances: %s",
-                entity_type,
-                ", ".join(self.entities[entity_type].keys()),
-            )
+            self.oauth.clear(self.balance_slug)
 
-            self.clear_notifications()
-
-    def send_auth_link_notification(self) -> None:
-        """Run the first time login process."""
-        self.log("Running first time login")
-
-        auth_link_params = {
-            "client_id": self.client.client_id,
-            "redirect_uri": self.redirect_uri,
-            "response_type": "code",
-            "state": string.ascii_lowercase,
-            "access_type": "offline",
-            "prompt": "consent",
-            "scope": " ".join(self.client.scopes),
-        }
-
-        auth_link = self.client.auth_link_base + "?" + parse.urlencode(auth_link_params)
-
-        self.log(auth_link)
-        self.set_reauth_status(needs_reauth=True, auth_link=auth_link)
-
-        self.call_service(
-            "script/turn_on",
-            entity_id=self.notify_script,
-            variables={
-                "clear_notification": True,
-                "title": f"{self.bank} Access Token Expired",
-                "message": f"TrueLayer access token for {self.bank} has expired!",
-                "notification_id": self.notification_id,
-                "mobile_notification_icon": "mdi:key-alert-outline",
-                "actions": dumps(
-                    [
-                        {"action": "URI", "title": "Auth Link", "uri": auth_link},
-                        {
-                            "action": "URI",
-                            "title": "Submit Code",
-                            "uri": f"entityId:{self.auth_code_input_text}",
-                        },
-                    ],
-                ),
-            },
-        )
-
-    def set_reauth_status(self, *, needs_reauth: bool, auth_link: str = "") -> None:
-        """Publish reauth status for the dashboard card."""
-        self.call_service(
-            "var/set",
-            entity_id=self.reauth_var,
-            value="on" if needs_reauth else "off",
-            force_update=True,
-            attributes={"auth_link": auth_link},
-        )
+        return True
 
     def error(self, msg: str, *args: Any, **kwargs: Any) -> None:
         """Override the error method to prepend the bank name."""
@@ -304,77 +291,10 @@ class BankBalanceGetter(Hass):
         """Refresh the access token."""
         self.log("Refreshing access token", self.bank)
 
-        self.client.refresh_access_token()
-        self.log("Refreshed access token")
-
-    def consume_auth_token(
-        self,
-        entity: str,
-        attribute: str,
-        old: Any,
-        new: Any,
-        **kwargs: Any,
-    ) -> None:
-        """Consume the auth token and get the access token."""
-        _ = entity, attribute, old, kwargs
-
-        if not new:
-            return
-
-        if len(new) == 1:
-            self.send_auth_link_notification()
-            return
-
-        self.log("Consuming auth code %s", new)
-
-        payload = {
-            "code": new,
-            "grant_type": "authorization_code",
-            "client_id": self.client.client_id,
-            "client_secret": self.client.client_secret,
-            "redirect_uri": self.redirect_uri,
-        }
-
         try:
-            credentials: dict[str, Any] = self.client.post_json_response(  # type: ignore[assignment]
-                self.client.access_token_endpoint,
-                json=payload,
-                header_overrides={},
-            )
-        except HTTPError as err:
-            payload.pop("client_secret")
-            self.error(
-                "Error response (%s %s) from %s: %s\n%s",
-                err.response.status_code,
-                err.response.reason,
-                err.response.url,
-                err.response.text,
-                payload,
-            )
-            return
-
-        credentials["client_id"] = self.client.client_id
-        credentials["client_secret"] = self.client.client_secret
-
-        self.client.credentials = OAuthCredentials.parse_first_time_login(credentials)
-
-        self.initialize_entities()
-
-        self.set_textvalue(
-            entity_id=self.auth_code_input_text,
-            value="",
-        )
-
-        self.clear_notifications()
-
-    def clear_notifications(self) -> None:
-        """Clear the notification and hide the dashboard reauth card."""
-        self.set_reauth_status(needs_reauth=False)
-        self.call_service(
-            "script/turn_on",
-            entity_id=self.notify_script,
-            variables={
-                "clear_notification": True,
-                "notification_id": self.notification_id,
-            },
-        )
+            self.client.refresh_access_token()
+        except (HTTPError, RuntimeError) as err:
+            if self._handle_credential_error(err):
+                return
+            raise
+        self.log("Refreshed access token")

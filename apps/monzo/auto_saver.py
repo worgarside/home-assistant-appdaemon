@@ -2,21 +2,24 @@
 
 from __future__ import annotations
 
-import string
 from datetime import UTC, datetime, timedelta
-from http import HTTPStatus
-from json import JSONDecodeError, dumps
+from json import dumps
 from pathlib import Path
 from re import IGNORECASE, Pattern
 from re import compile as re_compile
-from time import sleep
-from typing import TYPE_CHECKING, Any, Final
-from urllib import parse
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from appdaemon.plugins.hass.hassapi import Hass
+from oauth_callback_broker import (
+    OAuthCallbackBroker,
+    OAuthFlow,
+    OAuthFlowConsumerMixin,
+    OAuthFlowManager,
+    OAuthProvider,
+    OAuthRetryPolicy,
+)
 from requests import HTTPError
 from wg_utilities.clients import MonzoClient, SpotifyClient, TrueLayerClient
-from wg_utilities.clients.oauth_client import OAuthCredentials
 from wg_utilities.clients.truelayer import Bank, Card
 from wg_utilities.clients.truelayer import Transaction as TrueLayerTransaction
 
@@ -28,7 +31,7 @@ if TYPE_CHECKING:
 CACHE_DIR = Path("/homeassistant/.wg-utilities/oauth_credentials")
 
 
-class AutoSaver(Hass):
+class AutoSaver(OAuthFlowConsumerMixin, Hass):
     """Automatically save money based on certain criteria."""
 
     AUTO_SAVE_VARIABLE_ID: Final[str] = "var.auto_save_amount"
@@ -52,6 +55,10 @@ class AutoSaver(Hass):
     def initialize(self) -> None:
         """Initialize the app."""
         truelayer_client_id = self.args["truelayer_client_id"]
+        oauth_broker = cast(
+            "OAuthCallbackBroker",
+            self.get_app("oauth_callback_broker"),
+        )
 
         self.monzo_client = MonzoClient(
             client_id=self.args["monzo_client_id"],
@@ -71,30 +78,72 @@ class AutoSaver(Hass):
             use_existing_credentials_only=True,
             bank=Bank.AMEX,
         )
+        self.spotify_client = SpotifyClient(
+            client_id=self.args["spotify_client_id"],
+            client_secret=self.args["spotify_client_secret"],
+            creds_cache_dir=CACHE_DIR,
+            use_existing_credentials_only=True,
+        )
 
         bank_slug = self.truelayer_client.bank.name.lower()
-
-        self.auth_code_input_text_lookup: dict[MonzoClient | TrueLayerClient, str] = {
-            self.monzo_client: "input_text.monzo_auth_token_auto_saver",
-            self.truelayer_client: f"input_text.truelayer_auth_token_{bank_slug}_auto_saver",
-        }
-
-        self.notification_id_lookup: dict[MonzoClient | TrueLayerClient, str] = {
-            self.monzo_client: "monzo_auto_saver_access_token_expired",
-            self.truelayer_client: f"truelayer_{bank_slug}_auto_saver_access_token_expired",
-        }
-
-        self.redirect_uri_lookup: dict[MonzoClient | TrueLayerClient, str] = {
-            self.truelayer_client: "https://console.truelayer.com/redirect-page",
-            self.monzo_client: "https://console.truelayer.com/redirect-page",
-        }
-
-        self.truelayer_reauth_var = self.args["truelayer_reauth_var"]
-        self.monzo_reauth_var = self.args["monzo_reauth_var"]
-
-        self.input_text_client_lookup: dict[str, MonzoClient | TrueLayerClient] = {
-            v: k for k, v in self.auth_code_input_text_lookup.items()
-        }
+        self._spotify_ready = False
+        common_auth_params = {"access_type": "offline", "prompt": "consent"}
+        self.oauth = OAuthFlowManager(
+            self,
+            oauth_broker,
+            [
+                OAuthFlow(
+                    ref="monzo",
+                    provider=OAuthProvider.MONZO,
+                    client=self.monzo_client,
+                    reauth_var=self.args["monzo_reauth_var"],
+                    notification_id="monzo_auto_saver_access_token_expired",
+                    notification_title="Monzo (auto-saver) Access Token Expired",
+                    notification_message="Monzo access token has expired!",
+                    trigger_entity=self.args["monzo_reauth_trigger"],
+                    auth_params=common_auth_params,
+                    on_authorized=lambda: self.initialize_monzo(
+                        send_notification=False,
+                    ),
+                    retry_policy=OAuthRetryPolicy(),
+                ),
+                OAuthFlow(
+                    ref="truelayer",
+                    provider=OAuthProvider.TRUELAYER,
+                    client=self.truelayer_client,
+                    reauth_var=self.args["truelayer_reauth_var"],
+                    notification_id=(
+                        f"truelayer_{bank_slug}_auto_saver_access_token_expired"
+                    ),
+                    notification_title=(
+                        f"{self.truelayer_client.bank} (auto-saver) Access Token Expired"
+                    ),
+                    notification_message=(
+                        "TrueLayer access token for "
+                        f"{self.truelayer_client.bank} (auto-saver) has expired!"
+                    ),
+                    trigger_entity=self.args["truelayer_reauth_trigger"],
+                    auth_params=common_auth_params,
+                    on_authorized=lambda: self.initialize_amex(
+                        send_notification=False,
+                    ),
+                ),
+                OAuthFlow(
+                    ref="spotify",
+                    provider=OAuthProvider.SPOTIFY,
+                    client=self.spotify_client,
+                    reauth_var=self.args["spotify_reauth_var"],
+                    notification_id="spotify_auto_saver_access_token_expired",
+                    notification_title="Spotify (auto-saver) Access Token Expired",
+                    notification_message="Spotify access token has expired!",
+                    trigger_entity=self.args["spotify_reauth_trigger"],
+                    auth_params={"show_dialog": "true"},
+                    on_authorized=lambda: self.initialize_spotify(
+                        send_notification=False,
+                    ),
+                ),
+            ],
+        )
 
         self._amex_transactions = []
         self._monzo_transactions = []
@@ -109,11 +158,6 @@ class AutoSaver(Hass):
         )
         self._naughty_transaction_percentage = self.get_entity(
             "input_number.auto_save_naughty_transaction_percentage",
-        )
-
-        self.listen_state(
-            self.consume_auth_token,
-            list(self.auth_code_input_text_lookup.values()),
         )
 
         self.listen_state(
@@ -149,56 +193,48 @@ class AutoSaver(Hass):
         if not hasattr(self, "savings_pot"):
             self.initialize_monzo()
 
-        if not hasattr(self, "spotify_client"):
-            self.spotify_client = SpotifyClient(
-                client_id=self.args["spotify_client_id"],
-                client_secret=self.args["spotify_client_secret"],
-                creds_cache_dir=Path("/homeassistant/.wg-utilities/oauth_credentials"),
-                use_existing_credentials_only=True,
+        if not self._spotify_ready:
+            self.initialize_spotify()
+
+        if (
+            hasattr(self, "amex_card")
+            and hasattr(self, "savings_pot")
+            and self._spotify_ready
+        ):
+            self.calculate(
+                "",
+                "state",
+                "",
+                "-",
             )
 
-        self.calculate(
-            "",
-            "state",
-            "",
-            "-",
-        )
-
-    def initialize_amex(self) -> None:
+    def initialize_amex(self, *, send_notification: bool = True) -> bool:
         """Initialize the Amex card."""
         try:
             self.amex_card = self.truelayer_client.list_cards()[0]
-        except HTTPError as err:
-            if (
-                err.response.url == self.truelayer_client.ACCESS_TOKEN_ENDPOINT
-                and err.response.status_code == HTTPStatus.BAD_REQUEST
+        except (HTTPError, RuntimeError) as err:
+            if self.oauth.handle_authorization_error(
+                "truelayer",
+                err,
+                start_flow=send_notification,
             ):
-                try:
-                    self.send_auth_link_notification(self.truelayer_client)
-                except Exception as login_err:
-                    raise login_err from err
-                else:
-                    return
+                return False
+            raise
 
-        self.clear_notifications(self.truelayer_client)
+        self.oauth.clear("truelayer")
+        return True
 
     def initialize_monzo(self, *, send_notification: bool = True) -> bool:
         """Initialize the Monzo client."""
         try:
             pot = self.monzo_client.get_pot_by_id(self.args["savings_pot_id"])
-        except HTTPError as err:
-            try:
-                data = err.response.json()
-            except JSONDecodeError:
-                self.error("Error response from Monzo: %s", err.response.text)
-                raise err from None
-
-            if data.get("code") == "forbidden.insufficient_permissions":
-                if send_notification:
-                    self.send_auth_link_notification(self.monzo_client)
+        except (HTTPError, RuntimeError) as err:
+            if self.oauth.handle_authorization_error(
+                "monzo",
+                err,
+                start_flow=send_notification,
+            ):
                 return False
-
-            self.error(err.response.text)
             raise
 
         if not pot:
@@ -207,8 +243,25 @@ class AutoSaver(Hass):
 
         self.savings_pot = pot
 
-        self.clear_notifications(self.monzo_client)
+        self.oauth.clear("monzo")
 
+        return True
+
+    def initialize_spotify(self, *, send_notification: bool = True) -> bool:
+        """Validate Spotify credentials, or start the brokered auth flow."""
+        try:
+            _ = self.spotify_client.current_user.id
+        except (HTTPError, RuntimeError) as err:
+            if self.oauth.handle_authorization_error(
+                "spotify",
+                err,
+                start_flow=send_notification,
+            ):
+                return False
+            raise
+
+        self._spotify_ready = True
+        self.oauth.clear("spotify")
         return True
 
     def _get_percentage_of_debit_transactions_value(self) -> tuple[int, list[str]]:
@@ -291,13 +344,19 @@ class AutoSaver(Hass):
 
     def _get_spotify_savings(self) -> tuple[int, list[str]]:
         """'Pay' 79p a song to savings."""
-        liked_tracks = [
-            track
-            for track in self.spotify_client.current_user.get_recently_liked_tracks(
-                day_limit=(datetime.now(UTC) - self.last_auto_save).days + 1,
-            )
-            if track.metadata["saved_at"] >= self.last_auto_save
-        ]
+        try:
+            liked_tracks = [
+                track
+                for track in self.spotify_client.current_user.get_recently_liked_tracks(
+                    day_limit=(datetime.now(UTC) - self.last_auto_save).days + 1,
+                )
+                if track.metadata["saved_at"] >= self.last_auto_save
+            ]
+        except (HTTPError, RuntimeError) as err:
+            if self.oauth.handle_authorization_error("spotify", err):
+                self._spotify_ready = False
+                return 0, []
+            raise
 
         return 79 * len(liked_tracks), [str(track) for track in liked_tracks]
 
@@ -363,103 +422,6 @@ class AutoSaver(Hass):
             attributes=attributes,
         )
 
-    def consume_auth_token(
-        self,
-        entity: str,
-        attribute: str,
-        old: Any,
-        new: Any,
-        **kwargs: Any,
-    ) -> None:
-        """Consume the auth token and get the access token."""
-        _ = attribute, old, kwargs
-
-        if not new:
-            return
-
-        client = self.input_text_client_lookup[entity]
-
-        if len(new) <= 1:
-            self.send_auth_link_notification(client)
-            return
-
-        self.log("Consuming auth code %s", new)
-
-        content_type = (
-            "application/x-www-form-urlencoded"
-            if isinstance(client, MonzoClient)
-            else "application/json"
-        )
-
-        payload = {
-            "code": new,
-            "grant_type": "authorization_code",
-            "client_id": client.client_id,
-            "client_secret": client.client_secret,
-            "redirect_uri": self.redirect_uri_lookup[client],
-            "scope": " ".join(client.scopes),
-        }
-
-        try:
-            credentials: dict[str, Any] = client.post_json_response(  # type: ignore[assignment]
-                client.access_token_endpoint,
-                data=payload if isinstance(client, MonzoClient) else None,
-                json=payload if isinstance(client, TrueLayerClient) else None,
-                header_overrides={"Content-Type": content_type},
-            )
-        except HTTPError as err:
-            payload.pop("client_secret")
-
-            self.error(
-                "Error response (%s %s) from %s: %s\n%s",
-                err.response.status_code,
-                err.response.reason,
-                err.response.url,
-                err.response.text,
-                payload,
-            )
-            return
-
-        credentials["client_id"] = client.client_id
-        credentials["client_secret"] = client.client_secret
-
-        client.credentials = OAuthCredentials.parse_first_time_login(credentials)
-
-        self.log("Successfully authenticated %s", client.__class__.__name__)
-
-        if isinstance(client, MonzoClient):
-            for _ in range(12):
-                if self.initialize_monzo(send_notification=False):
-                    break
-                sleep(10)
-            else:
-                self.error(
-                    "Monzo re-initialization failed after retries; leaving reauth state set",
-                )
-        else:
-            self.initialize_amex()
-
-        self.set_textvalue(
-            entity_id=self.auth_code_input_text_lookup[client],
-            value="",
-        )
-
-    def clear_notifications(self, client: MonzoClient | TrueLayerClient) -> None:
-        """Clear the notification and hide any dashboard reauth card."""
-        if isinstance(client, TrueLayerClient):
-            self.set_truelayer_reauth_status(needs_reauth=False)
-        else:
-            self.set_monzo_reauth_status(needs_reauth=False)
-
-        self.call_service(
-            "script/turn_on",
-            entity_id="script.notify_will",
-            variables={
-                "clear_notification": True,
-                "notification_id": self.notification_id_lookup[client],
-            },
-        )
-
     def save_money(
         self,
         entity: str,
@@ -497,11 +459,16 @@ class AutoSaver(Hass):
             )
             return
 
-        self.monzo_client.deposit_into_pot(
-            self.savings_pot,
-            amount_pence=save_amount_pence,
-            dedupe_id=f"{self.name}-{auto_save_last_changed}",
-        )
+        try:
+            self.monzo_client.deposit_into_pot(
+                self.savings_pot,
+                amount_pence=save_amount_pence,
+                dedupe_id=f"{self.name}-{auto_save_last_changed}",
+            )
+        except (HTTPError, RuntimeError) as err:
+            if self.oauth.handle_authorization_error("monzo", err):
+                return
+            raise
 
         self.call_service(
             "input_datetime/set_datetime",
@@ -528,120 +495,46 @@ class AutoSaver(Hass):
             force_update=True,
         )
 
-    def send_auth_link_notification(self, client: TrueLayerClient | MonzoClient) -> None:
-        """Run the first time login process."""
-        self.log("Running first time login")
-
-        auth_link_params = {
-            "client_id": client.client_id,
-            "redirect_uri": "https://console.truelayer.com/redirect-page",
-            "response_type": "code",
-            "state": string.ascii_lowercase,
-            "access_type": "offline",
-            "prompt": "consent",
-        }
-
-        if client.scopes:
-            auth_link_params["scope"] = " ".join(client.scopes)
-
-        auth_link = client.auth_link_base + "?" + parse.urlencode(auth_link_params)
-
-        self.log(auth_link)
-
-        if isinstance(client, TrueLayerClient):
-            title = f"{client.bank} (auto-saver) Access Token Expired"
-            message = (
-                f"TrueLayer access token for {client.bank} (auto-saver) has expired!"
-            )
-            self.set_truelayer_reauth_status(needs_reauth=True, auth_link=auth_link)
-        else:
-            title = "Monzo (auto-saver) Access Token Expired"
-            message = "Monzo access token has expired!"
-            self.set_monzo_reauth_status(needs_reauth=True, auth_link=auth_link)
-
-        self.call_service(
-            "script/turn_on",
-            entity_id="script.notify_will",
-            variables={
-                "clear_notification": True,
-                "title": title,
-                "message": message,
-                "notification_id": self.notification_id_lookup[client],
-                "mobile_notification_icon": "mdi:key-alert-outline",
-                "actions": dumps(
-                    [
-                        {"action": "URI", "title": "Auth Link", "uri": auth_link},
-                        {
-                            "action": "URI",
-                            "title": "Submit Code",
-                            "uri": f"entityId:{self.auth_code_input_text_lookup[client]}",
-                        },
-                    ],
-                ),
-            },
-        )
-
-    def set_truelayer_reauth_status(
-        self,
-        *,
-        needs_reauth: bool,
-        auth_link: str = "",
-    ) -> None:
-        """Publish Amex auto-saver reauth status for the dashboard card."""
-        self.call_service(
-            "var/set",
-            entity_id=self.truelayer_reauth_var,
-            value="on" if needs_reauth else "off",
-            force_update=True,
-            attributes={"auth_link": auth_link},
-        )
-
-    def set_monzo_reauth_status(
-        self,
-        *,
-        needs_reauth: bool,
-        auth_link: str = "",
-    ) -> None:
-        """Publish Monzo auto-saver reauth status for the dashboard card."""
-        self.call_service(
-            "var/set",
-            entity_id=self.monzo_reauth_var,
-            value="on" if needs_reauth else "off",
-            force_update=True,
-            attributes={"auth_link": auth_link},
-        )
-
     def update_transaction_records(self) -> None:
         """Get the newest transactions from Amex/Monzo."""
         if hasattr(self, "amex_card"):
-            amex_txs = self.amex_card.get_transactions(
+            try:
+                amex_txs = self.amex_card.get_transactions(
+                    from_datetime=(
+                        self.last_auto_save
+                        if not self._amex_transactions
+                        else max(
+                            self._amex_transactions,
+                            key=lambda tx: tx.timestamp,
+                        ).timestamp
+                        + timedelta(seconds=1)
+                    ),
+                )
+            except (HTTPError, RuntimeError) as err:
+                if not self.oauth.handle_authorization_error("truelayer", err):
+                    raise
+            else:
+                self._amex_transactions.extend(amex_txs)
+
+                self.log(
+                    "Found %s new transactions for Amex (%i total)",
+                    len(amex_txs),
+                    len(self._amex_transactions),
+                )
+
+        try:
+            monzo_txs = self.monzo_client.current_account.list_transactions(
                 from_datetime=(
                     self.last_auto_save
-                    if not self._amex_transactions
-                    else max(
-                        self._amex_transactions,
-                        key=lambda tx: tx.timestamp,
-                    ).timestamp
+                    if not self._monzo_transactions
+                    else max(self._monzo_transactions, key=lambda tx: tx.created).created
                     + timedelta(seconds=1)
                 ),
             )
-
-            self._amex_transactions.extend(amex_txs)
-
-            self.log(
-                "Found %s new transactions for Amex (%i total)",
-                len(amex_txs),
-                len(self._amex_transactions),
-            )
-
-        monzo_txs = self.monzo_client.current_account.list_transactions(
-            from_datetime=(
-                self.last_auto_save
-                if not self._monzo_transactions
-                else max(self._monzo_transactions, key=lambda tx: tx.created).created
-                + timedelta(seconds=1)
-            ),
-        )
+        except (HTTPError, RuntimeError) as err:
+            if self.oauth.handle_authorization_error("monzo", err):
+                return
+            raise
 
         self._monzo_transactions.extend(monzo_txs)
 

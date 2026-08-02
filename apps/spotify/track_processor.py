@@ -8,9 +8,18 @@ from json import dumps
 from pathlib import Path
 from re import compile as compile_regex
 from re import sub
-from typing import Any, Literal, Self
+from typing import Any, Literal, Self, cast
 
 from appdaemon.plugins.hass.hassapi import Hass
+from oauth_callback_broker import (
+    OAuthCallbackBroker,
+    OAuthFlow,
+    OAuthFlowConsumerMixin,
+    OAuthFlowManager,
+    OAuthProvider,
+    recover_oauth_errors,
+)
+from requests import HTTPError
 from wg_utilities.clients import SpotifyClient
 from wg_utilities.clients.spotify import Playlist, Track
 
@@ -45,7 +54,7 @@ class ActionablePlaylist(StrEnum):
         return member
 
 
-class SpotifyTrackProcessor(Hass):
+class SpotifyTrackProcessor(OAuthFlowConsumerMixin, Hass):
     """App to add recently liked tracks to dynamic playlists."""
 
     playlists: dict[str, Playlist]
@@ -53,14 +62,52 @@ class SpotifyTrackProcessor(Hass):
 
     def initialize(self) -> None:
         """Initialise the app."""
+        oauth_broker = cast(
+            "OAuthCallbackBroker",
+            self.get_app("oauth_callback_broker"),
+        )
         self.spotify = SpotifyClient(
             client_id=self.args["client_id"],
             client_secret=self.args["client_secret"],
             creds_cache_dir=Path("/homeassistant/.wg-utilities/oauth_credentials"),
             use_existing_credentials_only=True,
         )
+        self._callbacks_registered = False
+        self.oauth = OAuthFlowManager(
+            self,
+            oauth_broker,
+            [
+                OAuthFlow(
+                    ref="track_processor",
+                    provider=OAuthProvider.SPOTIFY,
+                    client=self.spotify,
+                    reauth_var=self.args["reauth_var"],
+                    notification_id="spotify_track_processor_access_token_expired",
+                    notification_title=("Spotify Track Processor Access Token Expired"),
+                    notification_message="Spotify access token has expired!",
+                    trigger_entity=self.args["reauth_trigger"],
+                    auth_params={"show_dialog": "true"},
+                    on_authorized=lambda: self.initialize_spotify(
+                        send_notification=False,
+                    ),
+                ),
+            ],
+        )
 
-        _ = self.spotify.current_user.playlists  # Pre-load playlists
+        self.initialize_spotify()
+
+    def initialize_spotify(self, *, send_notification: bool = True) -> bool:
+        """Initialize Spotify resources, or start brokered authorization."""
+        try:
+            _ = self.spotify.current_user.playlists  # Pre-load playlists
+        except (HTTPError, RuntimeError) as err:
+            if self.oauth.handle_authorization_error(
+                "track_processor",
+                err,
+                start_flow=send_notification,
+            ):
+                return False
+            raise
 
         self.log("Logged in as %s", self.spotify.current_user)
 
@@ -85,20 +132,28 @@ class SpotifyTrackProcessor(Hass):
             ),
         }
 
-        self.run_every(self.process_liked_tracks, "immediate", 15 * 60)
-        self.listen_state(self.process_now_playing, "var.tasker_pixel_now_playing")
-        self.listen_state(
-            self.update_tempo_variable,
-            "sensor.spotify_will_garside_media_title",
-        )
-        self.listen_event(self.add_track_to_playlist, "mobile_app_notification_action")
+        if not self._callbacks_registered:
+            self.run_every(self.process_liked_tracks, "immediate", 15 * 60)
+            self.listen_state(self.process_now_playing, "var.tasker_pixel_now_playing")
+            self.listen_state(
+                self.update_tempo_variable,
+                "sensor.spotify_will_garside_media_title",
+            )
+            self.listen_event(
+                self.add_track_to_playlist,
+                "mobile_app_notification_action",
+            )
+            self.run_every(
+                self.update_top_track_playlists,
+                "immediate",
+                timedelta(days=3).total_seconds(),
+            )
+            self._callbacks_registered = True
 
-        self.run_every(
-            self.update_top_track_playlists,
-            "immediate",
-            timedelta(days=3).total_seconds(),
-        )
+        self.oauth.clear("track_processor")
+        return True
 
+    @recover_oauth_errors("track_processor")
     def add_track_to_playlist(
         self,
         event_type: str,
@@ -137,6 +192,7 @@ class SpotifyTrackProcessor(Hass):
 
         self.spotify.add_tracks_to_playlist([track], self.playlists[actionable])
 
+    @recover_oauth_errors("track_processor")
     def process_liked_tracks(self, _: dict[str, Any]) -> None:
         """Add recently liked tracks to dynamically generated playlists.
 
@@ -246,6 +302,7 @@ class SpotifyTrackProcessor(Hass):
                 message=message,
             )
 
+    @recover_oauth_errors("track_processor")
     def process_now_playing(
         self,
         entity: str,
@@ -306,6 +363,7 @@ class SpotifyTrackProcessor(Hass):
         else:
             self.error("No matching track found for search term '%s'", search_term)
 
+    @recover_oauth_errors("track_processor")
     def update_tempo_variable(
         self,
         entity: str,
@@ -371,6 +429,7 @@ class SpotifyTrackProcessor(Hass):
                 force_update=True,
             )
 
+    @recover_oauth_errors("track_processor")
     def update_top_track_playlists(self, _: dict[str, Any]) -> None:
         """Update the top tracks playlists for the current user."""
         time_range: Literal["short_term", "medium_term", "long_term"]
