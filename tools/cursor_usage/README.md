@@ -1,8 +1,10 @@
 # Cursor usage token pusher
 
-This macOS helper reads Cursor's current session token from its local state database
-and sends it to the local-only Home Assistant webhook used by
-`CursorUsageMonitor`. It runs once when loaded and every six hours thereafter.
+This macOS helper reads Cursor's current session token and cached account identity
+from its local state database and sends them to the local-only Home Assistant webhook
+used by `CursorUsageMonitor`. It runs once when loaded and every six hours thereafter.
+The monitor routes each token to that account's own MQTT device and sensors, so
+switching Cursor logins does not overwrite another account's usage.
 
 The helper does not modify Cursor's database, store another local copy of the token,
 or put the token in either repository.
@@ -16,6 +18,8 @@ shared configuration or the AppDaemon repository.
 
 Cursor must be installed and signed in. The Home Assistant webhook must also be
 deployed before setup, because loading the launch agent triggers its first push.
+`just check` prints the email address and display name associated with the token
+without sending it.
 
 ```shell
 cd tools/cursor_usage
@@ -40,6 +44,9 @@ Setup installs:
 - `~/.local/bin/cursor-token-push.py`
 - `~/Library/LaunchAgents/com.worgarside.cursor-usage-token-push.plist`
 - stdout and stderr logs under `~/Library/Logs/`
+
+Run `just setup` again after this source script changes. Setup replaces the installed
+copy and reloads the launch agent.
 
 Check whether the agent is installed and loaded:
 
