@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from wg_utilities.clients.monzo import Transaction as MonzoTransaction
 
 CACHE_DIR = Path("/homeassistant/.wg-utilities/oauth_credentials")
+MONZO_TRANSACTION_LOOKBACK_DAYS: Final[int] = 89
 
 
 class AutoSaver(OAuthFlowConsumerMixin, Hass):
@@ -98,8 +99,8 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
                     client=self.monzo_client,
                     reauth_var=self.args["monzo_reauth_var"],
                     notification_id="monzo_auto_saver_access_token_expired",
-                    notification_title="Monzo (auto-saver) Access Token Expired",
-                    notification_message="Monzo access token has expired!",
+                    notification_title="Monzo (auto-saver) Authorization Required",
+                    notification_message="Monzo authorization is required.",
                     trigger_entity=self.args["monzo_reauth_trigger"],
                     auth_params=common_auth_params,
                     on_authorized=self.initialize_monzo_after_authorization,
@@ -145,6 +146,7 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
 
         self._amex_transactions = []
         self._monzo_transactions = []
+        self._transaction_records_ready = False
 
         self._auto_save_minimum = self.get_entity("input_number.auto_save_minimum")
         self._debit_transaction_percentage = self.get_entity(
@@ -387,7 +389,15 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
         if attribute != "state" or not new:
             return
 
-        self.update_transaction_records()
+        self._transaction_records_ready = False
+        if not self.update_transaction_records():
+            self.log(
+                "Skipping auto-save calculation because transaction records "
+                "could not be updated",
+                level="WARNING",
+            )
+            return
+        self._transaction_records_ready = True
 
         savings: dict[str, int] = {}
         breakdown: dict[str, dict[str, list[str]] | list[str]] = {}
@@ -449,6 +459,12 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
         if old == new or ({old, new} & {"unavailable", "unknown"}):
             return
 
+        if not self._transaction_records_ready:
+            self.error(
+                "Refusing to save money because transaction records are not current",
+            )
+            return
+
         auto_save_amount = self.get_state(self.AUTO_SAVE_VARIABLE_ID)
         if not isinstance(auto_save_amount, str | int | float) or isinstance(
             auto_save_amount,
@@ -508,8 +524,9 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
             force_update=True,
         )
 
-    def update_transaction_records(self) -> None:
+    def update_transaction_records(self) -> bool:
         """Get the newest transactions from Amex/Monzo."""
+        records_updated = True
         if hasattr(self, "amex_card"):
             try:
                 amex_txs = self.amex_card.get_transactions(
@@ -526,6 +543,7 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
             except (HTTPError, RuntimeError) as err:
                 if not self.oauth.handle_authorization_error("truelayer", err):
                     raise
+                records_updated = False
             else:
                 self._amex_transactions.extend(amex_txs)
 
@@ -535,18 +553,24 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
                     len(self._amex_transactions),
                 )
 
+        monzo_from_datetime = (
+            self.last_auto_save
+            if not self._monzo_transactions
+            else max(self._monzo_transactions, key=lambda tx: tx.created).created
+            + timedelta(seconds=1)
+        )
+        monzo_from_datetime = max(
+            monzo_from_datetime,
+            datetime.now(UTC) - timedelta(days=MONZO_TRANSACTION_LOOKBACK_DAYS),
+        )
+
         try:
             monzo_txs = self.monzo_client.current_account.list_transactions(
-                from_datetime=(
-                    self.last_auto_save
-                    if not self._monzo_transactions
-                    else max(self._monzo_transactions, key=lambda tx: tx.created).created
-                    + timedelta(seconds=1)
-                ),
+                from_datetime=monzo_from_datetime,
             )
         except (HTTPError, RuntimeError) as err:
             if self.oauth.handle_authorization_error("monzo", err):
-                return
+                return False
             raise
 
         self._monzo_transactions.extend(monzo_txs)
@@ -556,6 +580,7 @@ class AutoSaver(OAuthFlowConsumerMixin, Hass):
             len(monzo_txs),
             len(self._monzo_transactions),
         )
+        return records_updated
 
     @property
     def amex_transactions(self) -> list[TrueLayerTransaction]:
