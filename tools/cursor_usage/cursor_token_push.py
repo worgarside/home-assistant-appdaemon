@@ -9,6 +9,7 @@ import json
 import os
 import sqlite3
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,27 +28,78 @@ CURSOR_STATE_DB = (
 )
 JWT_SEPARATOR_COUNT = 2
 TOKEN_KEY = "cursorAuth/accessToken"  # noqa: S105
+EMAIL_KEY = "cursorAuth/cachedEmail"
+PROFILE_KEY = "cursorAuth/cachedScopedProfile"
+TEAM_KEY = "cursorAuth/cachedTeam"
 WEBHOOK_URL_ENV = "CURSOR_USAGE_WEBHOOK_URL"
+PAYLOAD_VERSION = 1
 
 
-def _read_token() -> str:
-    """Read the current token without modifying Cursor's database."""
+@dataclass(frozen=True)
+class CursorAccount:
+    """Cached presentation metadata for the active Cursor account."""
+
+    email: str
+    display_name: str | None
+    team_id: int | None
+    team_name: str | None
+
+
+def _decode_json_object(value: object, key: str) -> dict[str, Any]:
+    """Decode an optional JSON object from Cursor's state database."""
+    if value is None:
+        return {}
+    if isinstance(value, bytes):
+        value = value.decode()
+    if not isinstance(value, str):
+        raise TypeError(f"{key!r} has an unexpected value type")
+    decoded = json.loads(value)
+    if not isinstance(decoded, dict):
+        raise TypeError(f"{key!r} is not a JSON object")
+    return decoded
+
+
+def _read_session() -> tuple[str, CursorAccount]:
+    """Read the current token and account metadata in one database snapshot."""
     database_uri = f"{CURSOR_STATE_DB.as_uri()}?mode=ro"
     with sqlite3.connect(database_uri, uri=True, timeout=10) as connection:
-        row = connection.execute(
-            "SELECT value FROM ItemTable WHERE key = ?",
-            (TOKEN_KEY,),
-        ).fetchone()
+        rows = dict(
+            connection.execute(
+                "SELECT key, value FROM ItemTable WHERE key IN (?, ?, ?, ?)",
+                (TOKEN_KEY, EMAIL_KEY, PROFILE_KEY, TEAM_KEY),
+            ),
+        )
 
-    if row is None:
+    if TOKEN_KEY not in rows:
         raise RuntimeError(f"{TOKEN_KEY!r} was not found in {CURSOR_STATE_DB}")
 
-    token = row[0]
+    token = rows[TOKEN_KEY]
     if isinstance(token, bytes):
         token = token.decode()
     if not isinstance(token, str) or token.count(".") != JWT_SEPARATOR_COUNT:
         raise RuntimeError("Cursor access token has an unexpected format")
-    return token
+
+    email = rows.get(EMAIL_KEY)
+    if isinstance(email, bytes):
+        email = email.decode()
+    if not isinstance(email, str) or not email.strip():
+        raise RuntimeError("Cursor account email is unavailable; sign in again")
+
+    profile = _decode_json_object(rows.get(PROFILE_KEY), PROFILE_KEY)
+    team = _decode_json_object(rows.get(TEAM_KEY), TEAM_KEY)
+    display_name = profile.get("displayName")
+    team_id = team.get("teamId")
+    team_name = team.get("name")
+    return token, CursorAccount(
+        email=email.strip(),
+        display_name=display_name.strip()
+        if isinstance(display_name, str) and display_name.strip()
+        else None,
+        team_id=team_id if isinstance(team_id, int) else None,
+        team_name=team_name.strip()
+        if isinstance(team_name, str) and team_name.strip()
+        else None,
+    )
 
 
 def _decode_claims(token: str) -> dict[str, Any]:
@@ -75,13 +127,30 @@ def _decode_claims(token: str) -> dict[str, Any]:
     return claims
 
 
-def _push_token(token: str, subject: str, webhook_url: str) -> None:
+def _push_token(
+    token: str,
+    subject: str,
+    account: CursorAccount,
+    webhook_url: str,
+) -> None:
     """POST the session cookie value to Home Assistant."""
     if urlsplit(webhook_url).scheme not in {"http", "https"}:
         raise ValueError("Webhook URL must use HTTP or HTTPS")
 
     cookie_subject = subject.rsplit("|", maxsplit=1)[-1]
-    payload = json.dumps({"token": f"{cookie_subject}::{token}"}).encode()
+    payload = json.dumps(
+        {
+            "version": PAYLOAD_VERSION,
+            "token": f"{cookie_subject}::{token}",
+            "account": {
+                "subject": subject,
+                "email": account.email,
+                "display_name": account.display_name,
+                "team_id": account.team_id,
+                "team_name": account.team_name,
+            },
+        },
+    ).encode()
     request = Request(  # noqa: S310
         webhook_url,
         data=payload,
@@ -118,10 +187,15 @@ def main() -> int:
     """Validate and optionally push the current Cursor token."""
     args = _parse_args()
     try:
-        token = _read_token()
+        token, account = _read_session()
         claims = _decode_claims(token)
         if not args.check:
-            _push_token(token, str(claims["sub"]), _get_webhook_url())
+            _push_token(
+                token,
+                str(claims["sub"]),
+                account,
+                _get_webhook_url(),
+            )
     except (
         HTTPError,
         URLError,
@@ -139,7 +213,12 @@ def main() -> int:
         tz=timezone.utc,  # noqa: UP017
     )
     action = "validated" if args.check else "pushed"
-    print(f"Cursor token {action}; expires {expires_at.isoformat()}")
+    identity = account.email
+    if account.display_name:
+        identity = f"{account.display_name} <{account.email}>"
+    print(
+        f"Cursor token for {identity} {action}; expires {expires_at.isoformat()}",
+    )
     return 0
 
 
