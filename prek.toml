@@ -1,0 +1,139 @@
+# Configuration file for `prek`, a git hook framework written in Rust.
+# See https://prek.j178.dev for more information.
+#:schema https://www.schemastore.org/prek.json
+
+default_language_version = { python = "python3.12" }
+
+# TODO: worgarside/pre-commit-hooks-dependency-sync only understands
+# .pre-commit-config.yaml today, not prek.toml - it will fail here until
+# that's fixed upstream. Disabled for now, not removed, as a reminder.
+# [[repos]]
+# repo = "https://github.com/worgarside/pre-commit-hooks-dependency-sync"
+# rev = "1.5.1"
+# hooks = [
+#   {
+#     id = "sync-additional-dependencies",
+#     args = ["--package-manager=uv"]
+#   }
+# ]
+
+[[repos]]
+repo = "https://github.com/compilerla/conventional-pre-commit"
+rev = "v4.4.0"
+hooks = [
+  {
+    id = "conventional-pre-commit",
+    stages = ["commit-msg"]
+  }
+]
+
+[[repos]]
+repo = "https://github.com/astral-sh/ruff-pre-commit"
+rev = "v0.15.18"
+hooks = [
+  { id = "ruff-format" },
+  { id = "ruff-check" }
+]
+
+[[repos]]
+repo = "https://github.com/rhysd/actionlint"
+rev = "v1.7.12"
+hooks = [
+  { id = "actionlint" }
+]
+
+[[repos]]
+repo = "https://github.com/pre-commit/pre-commit-hooks"
+rev = "v6.0.0"
+hooks = [
+  {
+    id = "check-added-large-files",
+    args = ["--maxkb=1000"]
+  },
+  { id = "check-case-conflict" },
+  { id = "end-of-file-fixer" },
+  { id = "mixed-line-ending" },
+  {
+    id = "pretty-format-json",
+    args = [
+      "--no-sort-keys",
+      "--autofix",
+      "--indent",
+      "2"
+    ]
+  },
+  { id = "trailing-whitespace" }
+]
+
+[[repos]]
+repo = "https://github.com/jumanjihouse/pre-commit-hook-yamlfmt"
+rev = "0.2.3"
+hooks = [
+  {
+    id = "yamlfmt",
+    args = [
+      "--mapping",
+      "2",
+      "--sequence",
+      "4",
+      "--offset",
+      "2",
+      "--width",
+      "4096"
+    ]
+  }
+]
+
+[[repos]]
+repo = "https://github.com/adrienverge/yamllint.git"
+rev = "v1.38.0"
+hooks = [
+  {
+    id = "yamllint",
+    args = [
+      "--format",
+      "parsable",
+      "--strict"
+    ]
+  }
+]
+
+[[repos]]
+repo = "https://github.com/DetachHead/basedpyright-prek-mirror"
+rev = "1.39.8"
+hooks = [
+  {
+    id = "basedpyright",
+    name = "basedpyright-apps",
+    files = '^(apps/|pyproject\.toml$)',
+    pass_filenames = false,
+    additional_dependencies = [
+      "appdaemon==4.5.13",
+      "gitpython==3.1.57",
+      "pillow==12.3.0",
+      "pydantic==2.10.6",
+      "pygithub==2.9.1",
+      "requests==2.32.5",
+      "wg-utilities==5.17.4"
+    ]
+  }
+]
+
+[[repos]]
+repo = "https://github.com/pre-commit/pygrep-hooks"
+rev = "v1.10.0"
+hooks = [
+  { id = "python-check-blanket-noqa" },
+  { id = "python-check-blanket-type-ignore" },
+  { id = "python-check-mock-methods" }
+]
+
+[[repos]]
+repo = "https://github.com/codespell-project/codespell"
+rev = "v2.4.2"
+hooks = [
+  {
+    id = "codespell",
+    additional_dependencies = ["tomli==2.2.1"]
+  }
+]
