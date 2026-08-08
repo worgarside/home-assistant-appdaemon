@@ -19,6 +19,7 @@ labels:
   - label: dependencies
     authors:
       - dependabot[bot]
+      - pre-commit-ci[bot]
 
   - label: documentation
     files:
