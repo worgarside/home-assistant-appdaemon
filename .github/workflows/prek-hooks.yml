@@ -14,13 +14,13 @@ on:
       - ready_for_review
 
 concurrency:
-  group: prek-hooks-${{ github.ref }}
+  group: 'prek-hooks-${{ github.ref }}'
   cancel-in-progress: true
 
 jobs:
   prek:
     name: Prek Hooks
-    uses: worgarside/github-config-files/.github/workflows/__prek-hooks.yml@0.5.2
+    uses: worgarside/github-config-files/.github/workflows/__prek-hooks.yml@0.5.3
     with:
       python-version: '3.12'
     secrets: inherit
