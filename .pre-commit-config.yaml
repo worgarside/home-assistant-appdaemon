@@ -70,7 +70,7 @@ repos:
         pass_filenames: false
         additional_dependencies:
           - appdaemon==4.5.13
-          - gitpython==3.1.57
+          - gitpython==3.1.58
           - pillow==12.3.0
           - pydantic==2.10.6
           - pygithub==2.9.1
