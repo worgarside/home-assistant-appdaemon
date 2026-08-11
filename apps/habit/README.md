@@ -35,8 +35,12 @@ Each slot exposes:
 - Repeat count and interval controls.
 - A minimum-days-per-week streak control.
 - An AI-reminder switch.
+- A requirement template text entity. An empty template means the habit is always due.
+- A read-only status sensor with `complete`, `due`, or `not_due` state.
+- Completion-mode, completion-template, and duration controls for event-driven habits.
 - Configurable icons for complete, incomplete, active, and zero states.
-- A streak sensor with completion age and 28-day completion rate attributes.
+- A streak sensor with completion age, 28-day completion/compliance rates, and a
+  28-day not-required-day count in its attributes.
 
 The app maintains exactly one unnamed spare slot per user. Clearing a habit's name
 deletes that habit and its completion history. Unused discovery entities are retired
@@ -71,6 +75,13 @@ Habit completion history is stored by local calendar date:
 - Binary habits store `1` when complete.
 - Countable habits store their daily count.
 - A count greater than zero counts as completion for streak purposes.
+
+Conditional habits persist dates on which their requirement evaluated false under
+`not_required_days`, separately from actual completions. Those dates satisfy streak
+continuity without changing completion history or `days_since_completion`. The
+28-day completion rate remains actual completions divided by 28; the separate
+compliance rate measures completions across days that were required. Clearing a
+habit also clears its skipped-day history.
 
 With a seven-day minimum, streaks require daily completion. Lower settings use a
 **weekly-grace** model that is intentionally different from the legacy SQL streak
@@ -108,6 +119,15 @@ is incomplete and has no pending reminder, `next_reminder` is set to today at
 `reminder_time` only retargets a pending **first** reminder for today; mid-chain
 repeats are left alone.
 
+If `text.<user>_habit_<slot>_requirement_template` evaluates false, the habit status
+is `not_due`, the date is recorded as skipped, pending reminders and completion
+duration timers are cancelled, and event-driven completion is not evaluated. When
+the requirement becomes true later that day, the skipped marker is removed and the
+first reminder is seeded for the configured time or immediately when that time has
+passed. Dependency changes, startup recovery, and midnight all re-evaluate the
+requirement. Reminder callbacks render it again immediately before notifying.
+Template errors and unusable results fail safe to required.
+
 When a reminder fires, the app skips completed habits, sends the notification, then
 either advances `next_reminder` by the repeat interval (while under the midnight
 cutoff) or clears the pending chain. Completion, rename, delete, type change, or end
@@ -137,6 +157,7 @@ app calls the configured `ai_task` entity and asks it for a short reminder.
 Context can include:
 
 - Current streak, completion age, and recent completion rate (habits).
+- Current habit status, requirement state, compliance rate, and not-required count.
 - Mood streak and that today's mood is still unset (mood reminders).
 - Mood and mood note (habit reminders).
 - Broad location category derived from Home Assistant labels.
