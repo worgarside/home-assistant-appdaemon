@@ -47,12 +47,19 @@ Each user also receives:
 - `select.<user>_mood_today`
 - `text.<user>_mood_note`
 - `sensor.<user>_mood_streak`
+- `sensor.<user>_mood_summary` (seven-day cards and compact 28-day chart data)
+- `switch.<user>_mood_context_prompts`
+- `number.<user>_mood_context_cooldown`
 - `time.<user>_mood_reminder_time` (daily template for the first fire)
 - `switch.<user>_mood_reminders` (enable/disable mood reminder notifications)
 - `datetime.<user>_mood_next_reminder` (editable absolute fire time)
 - `number.<user>_mood_repeat_count` and `number.<user>_mood_repeat_interval`
 - `sensor.<user>_habits_binary_count` and `sensor.<user>_habits_countable_count`
   (configured inventory counts by habit type; spare/unnamed slots are excluded)
+
+The existing unsuffixed mood select, note, streak, and reminder IDs are preserved.
+Hidden editor entities expose a selected check-in, logical date, optional time, mood,
+note, save action, and delete action for the current and previous six logical days.
 
 ## Persistence
 
@@ -65,6 +72,22 @@ The default data directory is:
 `store.json` is the source of truth. Writes are atomic, the previous valid file is
 retained as `store.json.backup`, and invalid files are quarantined. Completion changes
 are additionally appended to `completions.jsonl`.
+
+Mood data uses schema v3 timestamped check-ins. Each record has a stable ID, logical
+date, optional occurrence time, mood, note, source, and audit timestamps. Logical mood
+days run from 04:00 to 03:59 in `Europe/London`; entries and notes are retained
+indefinitely, while changes are limited to the current and previous six logical days.
+Migration from schema v2 is deterministic, keeps unknown historical times empty,
+attaches the current note to its matching entry, and writes a one-time
+`store.json.schema-v2-backup` before accepting v3 writes. Mood mutations are also
+written to `mood-checkins.jsonl`.
+
+Daily mood summaries include average, minimum, maximum, count, first-to-last
+direction, and a mixed flag when the range is at least two points. Current and longest
+streaks count distinct logical days; the summary also reports 7-day and 28-day
+consistency. Completed days with notes receive a cached Qwen narrative after 04:00.
+Editing a completed day invalidates and regenerates its narrative; AI failures never
+replace or block deterministic statistics.
 
 Habit completion history is stored by local calendar date:
 
@@ -119,16 +142,21 @@ the timer.
 Mood reminders use the same durable `next_reminder` pattern with user-level
 entities (`mood_reminders`, `mood_reminder_time`, `mood_next_reminder`, repeat
 count/interval). Turning `mood_reminders` off clears any pending mood timer.
-A mood reminder is also skipped once today's mood is set, and the pending chain
-is cleared at that point. Midnight re-seeds an incomplete mood check-in for the
-new day when reminders are enabled.
+A mood reminder is also skipped once the logical day's first check-in is recorded,
+and the pending chain is cleared at that point. The 04:00 rollover re-seeds an
+incomplete mood check-in when reminders are enabled.
+
+Mood prompts are sent as a grouped low/neutral notification and a grouped positive
+notification. Both expire after 15 minutes and open the user's dashboard. Choosing a
+mood clears the pair, creates exactly one check-in through the shared write path, and
+sends a text-reply notification for a note tied to that check-in. Cleared companion
+events remove the sibling notification where the mobile app exposes them.
 
 Notifications are sent through the user's configured `script.notify_*` script. Their
 action button either marks a binary habit complete or increments a countable habit.
 
-At local midnight, current values reset while historical completions remain available
-for streak calculations. Mood and mood notes reset at the same time. Pending reminder
-chains are cleared and incomplete habits are re-seeded for the new day.
+At local midnight, habit values reset while historical completions remain available
+for streak calculations. Mood draft state and reminder scheduling roll at 04:00.
 
 ## AI reminders
 
@@ -146,6 +174,15 @@ Context can include:
 
 Unavailable context is omitted. If AI generation fails or returns an empty response,
 the app sends a deterministic fallback reminder.
+
+Mood context prompting is separate from reminder text generation. It starts only
+after the day's first check-in, uses a configurable 15–360 minute cooldown (90 minutes
+by default), coalesces triggers during the cooldown, and discards stale work. Calendar
+blocks ignore cancelled/all-day events, merge overlaps or gaps of up to 15 minutes,
+and use structured Qwen output to fail closed. Presence prompts fire 15 minutes after
+returning from work or after another outing lasting at least two hours. Outing state is
+persisted across AppDaemon restarts. Will's context prompts default on; Vic's scheduled
+and contextual prompts default off.
 
 This implementation ports the behavior from the legacy Home Assistant
 `script.habit_send_reminder`. AppDaemon becomes the source of truth after cutover;

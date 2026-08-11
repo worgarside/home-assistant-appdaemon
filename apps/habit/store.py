@@ -10,7 +10,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from .models import StoreData, UnsupportedSchemaVersionError
+from .models import SCHEMA_VERSION, MoodCheckIn, StoreData, UnsupportedSchemaVersionError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -64,6 +64,7 @@ class HabitStore:
                 )
                 self._quarantine(candidate)
             else:
+                self._preserve_pre_migration(candidate)
                 for user in self.users:
                     data.users.setdefault(user, StoreData.empty((user,)).users[user])
                 return data
@@ -76,6 +77,22 @@ class HabitStore:
         else:
             self._log("No habit store found; starting with an empty store")
         return StoreData.empty(self.users)
+
+    def _preserve_pre_migration(self, path: Path) -> None:
+        """Keep one immutable copy of a valid older schema before first save."""
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            version = payload.get("schema_version") if isinstance(payload, dict) else None
+            if not isinstance(version, int) or version >= SCHEMA_VERSION:
+                return
+            destination = self.directory / f"store.json.schema-v{version}-backup"
+            if destination.exists():
+                return
+            shutil.copy2(path, destination)
+            destination.chmod(0o600)
+            self._log(f"Preserved pre-migration habit store at {destination}")
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            self._error(f"Could not preserve pre-migration habit store: {exc}")
 
     @staticmethod
     def _read(path: Path) -> StoreData:
@@ -137,6 +154,22 @@ class HabitStore:
             "count": count,
         }
         path = self.directory / "completions.jsonl"
+        with path.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(record, sort_keys=True))
+            file.write("\n")
+            file.flush()
+            os.fsync(file.fileno())
+        path.chmod(0o600)
+
+    def append_mood_log(self, user: str, operation: str, checkin: MoodCheckIn) -> None:
+        """Append an audit record after a mood mutation."""
+        record: dict[str, Any] = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "user": user,
+            "operation": operation,
+            "checkin": checkin.to_dict(),
+        }
+        path = self.directory / "mood-checkins.jsonl"
         with path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(record, sort_keys=True))
             file.write("\n")

@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, Self
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-SCHEMA_VERSION: Final[int] = 2
+SCHEMA_VERSION: Final[int] = 3
 MIN_SCHEMA_VERSION: Final[int] = 1
 MAX_NAME_LENGTH: Final[int] = 255
 MAX_TEMPLATE_LENGTH: Final[int] = 255
@@ -27,6 +27,22 @@ MOOD_OPTIONS: Final[tuple[str, ...]] = (
     "Good",
     "Great",
 )
+MOOD_SCORES: Final[dict[str, int]] = {
+    mood: score for score, mood in enumerate(MOOD_OPTIONS[1:], start=1)
+}
+MOOD_SOURCES: Final[frozenset[str]] = frozenset(
+    {"dashboard", "notification", "backfill", "migration"},
+)
+MAX_MOOD_NOTE_LENGTH: Final[int] = 1024
+MAX_MOOD_DRAFT_LENGTH: Final[int] = 255
+MAX_MOOD_ID_LENGTH: Final[int] = 128
+LOGICAL_DAY_BOUNDARY_HOUR: Final[int] = 4
+MOOD_EDIT_WINDOW_DAYS: Final[int] = 7
+MAX_MOOD_REQUEST_IDS: Final[int] = 100
+MAX_MOOD_CALENDAR_DECISIONS: Final[int] = 512
+MIN_MOOD_CONTEXT_COOLDOWN: Final[int] = 15
+MAX_MOOD_CONTEXT_COOLDOWN: Final[int] = 360
+MIXED_MOOD_SCORE_RANGE: Final[int] = 2
 
 
 class UnsupportedSchemaVersionError(ValueError):
@@ -248,6 +264,89 @@ class TemplateProgress:
 
 
 @dataclass(slots=True)
+class MoodCheckIn:
+    """One immutable-identity mood observation."""
+
+    id: str
+    logical_date: str
+    mood: str
+    note: str = ""
+    source: str = "dashboard"
+    occurred_at: str | None = None
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    def __post_init__(self) -> None:
+        """Reject malformed or ambiguous observations."""
+        if not self.id or len(self.id) > MAX_MOOD_ID_LENGTH:
+            raise ValueError("mood check-in id must be 1-128 characters")
+        date.fromisoformat(self.logical_date)
+        if self.mood not in MOOD_SCORES:
+            raise ValueError("invalid mood option")
+        if len(self.note) > MAX_MOOD_NOTE_LENGTH:
+            raise ValueError("mood note is too long")
+        if self.source not in MOOD_SOURCES:
+            raise ValueError("invalid mood source")
+        if self.occurred_at is not None:
+            datetime.fromisoformat(self.occurred_at)
+        datetime.fromisoformat(self.created_at)
+        datetime.fromisoformat(self.updated_at)
+
+    @property
+    def score(self) -> int:
+        """Return the stable numeric score for charts and aggregation."""
+        return MOOD_SCORES[self.mood]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize a check-in."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> Self:
+        """Parse and validate a persisted check-in."""
+        return cls(
+            id=_string(value, "id"),
+            logical_date=_string(value, "logical_date"),
+            mood=_string(value, "mood"),
+            note=_string(value, "note", ""),
+            source=_string(value, "source", "dashboard"),
+            occurred_at=_optional_string(value, "occurred_at"),
+            created_at=_string(value, "created_at"),
+            updated_at=_string(value, "updated_at"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class MoodDaySummary:
+    """Deterministic statistics for one logical day."""
+
+    logical_date: str
+    average: float
+    minimum: int
+    maximum: int
+    count: int
+    direction: str
+    mixed: bool
+    latest_mood: str
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize dashboard-safe summary data."""
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class MoodStreakStats:
+    """Current, longest, and recent mood consistency."""
+
+    current: int
+    longest: int
+    completed_7: int
+    completed_28: int
+    consistency_7: float
+    consistency_28: float
+
+
+@dataclass(slots=True)
 class UserData:
     """All disk-backed state for one configured user."""
 
@@ -255,11 +354,18 @@ class UserData:
     completions: dict[int, dict[str, int]] = field(default_factory=dict)
     pending_reminders: dict[int, PendingReminder] = field(default_factory=dict)
     template_progress: dict[int, TemplateProgress] = field(default_factory=dict)
-    mood_history: dict[str, str] = field(default_factory=dict)
-    mood_today: str = "Not Set"
-    mood_note: str = ""
+    mood_checkins: list[MoodCheckIn] = field(default_factory=list)
+    mood_note_draft: str = ""
+    mood_narratives: dict[str, str] = field(default_factory=dict)
+    mood_request_ids: list[str] = field(default_factory=list)
+    mood_context_prompts_enabled: bool | None = None
+    mood_context_cooldown_minutes: int = 90
+    mood_last_context_prompt_at: str | None = None
+    mood_calendar_decisions: dict[str, bool] = field(default_factory=dict)
+    mood_away_since: str | None = None
+    mood_away_saw_work: bool = False
     mood_reminder_time: str = "20:00:00"
-    mood_reminders_enabled: bool = True
+    mood_reminders_enabled: bool | None = None
     mood_repeat_count: int = 0
     mood_repeat_interval_minutes: int = 60
     pending_mood_reminder: PendingReminder | None = None
@@ -276,6 +382,22 @@ class UserData:
             time.fromisoformat(self.mood_reminder_time)
         except ValueError as error:
             raise ValueError("mood_reminder_time must use HH:MM:SS") from error
+        if len(self.mood_note_draft) > MAX_MOOD_DRAFT_LENGTH:
+            raise ValueError("mood note draft is too long")
+        if not (
+            MIN_MOOD_CONTEXT_COOLDOWN
+            <= self.mood_context_cooldown_minutes
+            <= MAX_MOOD_CONTEXT_COOLDOWN
+        ):
+            raise ValueError("mood context cooldown must be between 15 and 360")
+        if len(self.mood_request_ids) > MAX_MOOD_REQUEST_IDS:
+            raise ValueError("too many retained mood request ids")
+        if len(self.mood_calendar_decisions) > MAX_MOOD_CALENDAR_DECISIONS:
+            raise ValueError("too many cached mood calendar decisions")
+        if self.mood_last_context_prompt_at is not None:
+            datetime.fromisoformat(self.mood_last_context_prompt_at)
+        if self.mood_away_since is not None:
+            datetime.fromisoformat(self.mood_away_since)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize user data."""
@@ -294,9 +416,16 @@ class UserData:
                 str(slot): progress.to_dict()
                 for slot, progress in self.template_progress.items()
             },
-            "mood_history": self.mood_history,
-            "mood_today": self.mood_today,
-            "mood_note": self.mood_note,
+            "mood_checkins": [checkin.to_dict() for checkin in self.mood_checkins],
+            "mood_note_draft": self.mood_note_draft,
+            "mood_narratives": self.mood_narratives,
+            "mood_request_ids": self.mood_request_ids,
+            "mood_context_prompts_enabled": self.mood_context_prompts_enabled,
+            "mood_context_cooldown_minutes": self.mood_context_cooldown_minutes,
+            "mood_last_context_prompt_at": self.mood_last_context_prompt_at,
+            "mood_calendar_decisions": self.mood_calendar_decisions,
+            "mood_away_since": self.mood_away_since,
+            "mood_away_saw_work": self.mood_away_saw_work,
             "mood_reminder_time": self.mood_reminder_time,
             "mood_reminders_enabled": self.mood_reminders_enabled,
             "mood_repeat_count": self.mood_repeat_count,
@@ -331,30 +460,64 @@ class UserData:
             int(slot): TemplateProgress.from_dict(_dict(item))
             for slot, item in _mapping(value, "template_progress").items()
         }
-        mood_history = {
-            _date_string(day): _mood(mood)
-            for day, mood in _mapping(value, "mood_history").items()
+        raw_checkins = value.get("mood_checkins", [])
+        if not isinstance(raw_checkins, list):
+            raise TypeError("mood_checkins must be a list")
+        mood_checkins = [MoodCheckIn.from_dict(_dict(item)) for item in raw_checkins]
+        mood_narratives = {
+            _date_string(day): str(narrative)
+            for day, narrative in _mapping(value, "mood_narratives").items()
         }
+        raw_request_ids = value.get("mood_request_ids", [])
+        if not isinstance(raw_request_ids, list) or not all(
+            isinstance(item, str) for item in raw_request_ids
+        ):
+            raise TypeError("mood_request_ids must be a string list")
         raw_pending_mood = value.get("pending_mood_reminder")
         pending_mood = (
             None
             if raw_pending_mood in (None, {})
             else PendingReminder.from_dict(_dict(raw_pending_mood))
         )
+        raw_calendar_decisions = _mapping(value, "mood_calendar_decisions")
+        if not all(
+            isinstance(decision, bool) for decision in raw_calendar_decisions.values()
+        ):
+            raise TypeError("mood_calendar_decisions values must be booleans")
         return cls(
             habits=habits,
             completions=completions,
             pending_reminders=pending_reminders,
             template_progress=template_progress,
-            mood_history=mood_history,
-            mood_today=_mood(value.get("mood_today", "Not Set")),
-            mood_note=_string(value, "mood_note", ""),
-            mood_reminder_time=_string(value, "mood_reminder_time", "20:00:00"),
-            mood_reminders_enabled=_boolean(
+            mood_checkins=mood_checkins,
+            mood_note_draft=_string(value, "mood_note_draft", ""),
+            mood_narratives=mood_narratives,
+            mood_request_ids=list(raw_request_ids),
+            mood_context_prompts_enabled=_optional_boolean(
                 value,
-                "mood_reminders_enabled",
-                default=True,
+                "mood_context_prompts_enabled",
             ),
+            mood_context_cooldown_minutes=_integer(
+                value,
+                "mood_context_cooldown_minutes",
+                90,
+            ),
+            mood_last_context_prompt_at=_optional_string(
+                value,
+                "mood_last_context_prompt_at",
+            ),
+            mood_calendar_decisions={
+                str(fingerprint): decision
+                for fingerprint, decision in raw_calendar_decisions.items()
+            },
+            mood_away_since=_optional_string(value, "mood_away_since"),
+            mood_away_saw_work=_boolean(
+                value,
+                "mood_away_saw_work",
+                default=False,
+            ),
+            mood_reminder_time=_string(value, "mood_reminder_time", "20:00:00"),
+            mood_reminders_enabled=_optional_boolean(value, "mood_reminders_enabled"),
             mood_repeat_count=_integer(value, "mood_repeat_count", 0),
             mood_repeat_interval_minutes=_integer(
                 value,
@@ -374,11 +537,82 @@ def _migrate_1_to_2(value: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
+def _migrate_2_to_3(value: dict[str, Any]) -> dict[str, Any]:
+    """Convert one-value-per-day mood history to timestamped check-ins."""
+    migrated = dict(value)
+    users = _mapping(migrated, "users")
+    migrated_users: dict[str, Any] = {}
+    migration_time = datetime.now(UTC).isoformat()
+    local_today = datetime.now().astimezone().date().isoformat()
+    for user, raw_user in users.items():
+        user_data = _dict(raw_user)
+        history = _mapping(user_data, "mood_history")
+        current_mood = user_data.get("mood_today", "Not Set")
+        current_note = user_data.get("mood_note", "")
+        checkins: list[dict[str, object]] = []
+        for day, mood in sorted(history.items()):
+            _date_string(day)
+            validated_mood = _mood(mood)
+            if validated_mood == "Not Set":
+                continue
+            checkins.append(
+                {
+                    "id": f"legacy-{user}-{day}",
+                    "logical_date": day,
+                    "mood": validated_mood,
+                    "note": (
+                        str(current_note)[:MAX_MOOD_NOTE_LENGTH]
+                        if day == local_today and validated_mood == current_mood
+                        else ""
+                    ),
+                    "source": "migration",
+                    "occurred_at": None,
+                    "created_at": migration_time,
+                    "updated_at": migration_time,
+                },
+            )
+        if current_mood in MOOD_SCORES and not any(
+            item["logical_date"] == local_today for item in checkins
+        ):
+            checkins.append(
+                {
+                    "id": f"legacy-{user}-{local_today}",
+                    "logical_date": local_today,
+                    "mood": str(current_mood),
+                    "note": str(current_note)[:MAX_MOOD_NOTE_LENGTH],
+                    "source": "migration",
+                    "occurred_at": None,
+                    "created_at": migration_time,
+                    "updated_at": migration_time,
+                },
+            )
+        for legacy_key in ("mood_history", "mood_today", "mood_note"):
+            user_data.pop(legacy_key, None)
+        user_data.update(
+            {
+                "mood_checkins": checkins,
+                "mood_note_draft": "",
+                "mood_narratives": {},
+                "mood_request_ids": [],
+                "mood_context_prompts_enabled": None,
+                "mood_context_cooldown_minutes": 90,
+                "mood_last_context_prompt_at": None,
+                "mood_calendar_decisions": {},
+                "mood_away_since": None,
+                "mood_away_saw_work": False,
+            },
+        )
+        migrated_users[user] = user_data
+    migrated["users"] = migrated_users
+    return migrated
+
+
 # Upgrade steps keyed by source version; entry N migrates a payload from
 # version N to version N+1. Register a step in the same change that bumps
 # SCHEMA_VERSION.
 SCHEMA_MIGRATIONS: Final[dict[int, Callable[[dict[str, Any]], dict[str, Any]]]] = {
     1: _migrate_1_to_2,
+    2: _migrate_2_to_3,
 }
 
 
@@ -480,14 +714,72 @@ def calculate_streak(
     return StreakStats(streak, days_since, round(completed_28 / 28 * 100, 1))
 
 
-def calculate_mood_streak(mood_history: dict[str, str], *, today: date) -> int:
-    """Count consecutive completed mood entries ending yesterday."""
-    streak = 0
-    checked = today - timedelta(days=1)
-    while mood_history.get(checked.isoformat()) in MOOD_OPTIONS[1:]:
-        streak += 1
-        checked -= timedelta(days=1)
-    return streak
+def logical_date_for(value: datetime) -> date:
+    """Map local timestamps before 04:00 onto the preceding logical day."""
+    return (value - timedelta(hours=LOGICAL_DAY_BOUNDARY_HOUR)).date()
+
+
+def summarize_mood_day(
+    checkins: list[MoodCheckIn],
+    *,
+    logical_day: date,
+) -> MoodDaySummary | None:
+    """Aggregate every check-in belonging to one logical day."""
+    entries = [item for item in checkins if item.logical_date == logical_day.isoformat()]
+    if not entries:
+        return None
+    entries.sort(key=_mood_checkin_sort_key)
+    scores = [item.score for item in entries]
+    first_score = scores[0]
+    latest_score = scores[-1]
+    return MoodDaySummary(
+        logical_date=logical_day.isoformat(),
+        average=round(sum(scores) / len(scores), 2),
+        minimum=min(scores),
+        maximum=max(scores),
+        count=len(scores),
+        direction=(
+            "up"
+            if latest_score > first_score
+            else "down"
+            if latest_score < first_score
+            else "steady"
+        ),
+        mixed=max(scores) - min(scores) >= MIXED_MOOD_SCORE_RANGE,
+        latest_mood=entries[-1].mood,
+    )
+
+
+def calculate_mood_streak(
+    checkins: list[MoodCheckIn],
+    *,
+    today: date,
+) -> MoodStreakStats:
+    """Calculate immediate and historical logical-day consistency."""
+    completed = {date.fromisoformat(item.logical_date) for item in checkins}
+    anchor = today if today in completed else today - timedelta(days=1)
+    current = _strict_daily_streak(completed, anchor)
+    longest = 0
+    running = 0
+    previous: date | None = None
+    for completed_day in sorted(completed):
+        running = running + 1 if previous == completed_day - timedelta(days=1) else 1
+        longest = max(longest, running)
+        previous = completed_day
+    completed_7 = sum(today - timedelta(days=6) <= day <= today for day in completed)
+    completed_28 = sum(today - timedelta(days=27) <= day <= today for day in completed)
+    return MoodStreakStats(
+        current=current,
+        longest=longest,
+        completed_7=completed_7,
+        completed_28=completed_28,
+        consistency_7=round(completed_7 / 7 * 100, 1),
+        consistency_28=round(completed_28 / 28 * 100, 1),
+    )
+
+
+def _mood_checkin_sort_key(checkin: MoodCheckIn) -> tuple[str, str, str]:
+    return (checkin.occurred_at or "", checkin.created_at, checkin.id)
 
 
 def normalize_spare_slot(data: UserData) -> tuple[int | None, tuple[int, ...]]:
@@ -609,6 +901,15 @@ def _boolean(value: dict[str, Any], key: str, *, default: bool) -> bool:
     item = value.get(key, default)
     if not isinstance(item, bool):
         raise TypeError(f"{key} must be a boolean")
+    return item
+
+
+def _optional_boolean(value: dict[str, Any], key: str) -> bool | None:
+    item = value.get(key)
+    if item is None:
+        return None
+    if not isinstance(item, bool):
+        raise TypeError(f"{key} must be a boolean or null")
     return item
 
 

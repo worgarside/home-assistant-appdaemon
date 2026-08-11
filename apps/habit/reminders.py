@@ -134,3 +134,17 @@ def repeat_fits_before_midnight(now: datetime, interval_minutes: int) -> bool:
     )
     cutoff = next_midnight - timedelta(minutes=interval_minutes + 5)
     return now < cutoff
+
+
+def repeat_fits_before_logical_day_end(
+    now: datetime,
+    interval_minutes: int,
+    *,
+    boundary_hour: int = 4,
+) -> bool:
+    """Return whether a repeat fits before the next logical-day boundary."""
+    boundary = datetime.combine(now.date(), time(boundary_hour), tzinfo=now.tzinfo)
+    if now >= boundary:
+        boundary += timedelta(days=1)
+    cutoff = boundary - timedelta(minutes=interval_minutes + 5)
+    return now < cutoff
