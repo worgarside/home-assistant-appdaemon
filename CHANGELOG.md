@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.29.1 (2026-08-07)
+
+### Bug Fixes
+
+- Improve Monzo OAuth error handling
+  ([#285](https://github.com/worgarside/home-assistant-appdaemon/pull/285),
+  [`a23ebef`](https://github.com/worgarside/home-assistant-appdaemon/commit/a23ebef4a06aca6c555e64b2bc70d025e9fdf465))
+
+### Build System
+
+- **deps**: Bump cryptography from 49.0.0 to 50.0.0
+  ([#284](https://github.com/worgarside/home-assistant-appdaemon/pull/284),
+  [`a439420`](https://github.com/worgarside/home-assistant-appdaemon/commit/a439420d7cf941fff32f894377b7e87b0d1cc1a4))
+
+- **deps**: Bump gitpython from 3.1.54 to 3.1.57
+  ([#283](https://github.com/worgarside/home-assistant-appdaemon/pull/283),
+  [`2f5ddc7`](https://github.com/worgarside/home-assistant-appdaemon/commit/2f5ddc7ce94bf4d9575b60db369642276dbd490d))
+
+
 ## v0.29.0 (2026-08-02)
 
 ### Features

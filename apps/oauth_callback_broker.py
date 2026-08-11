@@ -16,7 +16,7 @@ from json import dumps
 from logging import getLogger
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from aiohttp import web
 from appdaemon.plugins.hass.hassapi import Hass
@@ -126,6 +126,7 @@ class OAuthFlowManager:
             raise ValueError("OAuth trigger entities must be unique within an app")
         self._retry_attempts: dict[str, int] = {}
         self._notification_generations: dict[str, int] = {}
+        self._active_flows: set[str] = set()
         self.app.listen_state(
             self._manual_trigger_callback,
             list(self._flow_ref_by_trigger),
@@ -141,7 +142,7 @@ class OAuthFlowManager:
     ) -> None:
         """Start a fresh flow whenever its Home Assistant button is pressed."""
         del attribute, old, new, kwargs
-        self.start(self._flow_ref_by_trigger[entity])
+        self.start(self._flow_ref_by_trigger[entity], force=True)
 
     def _get_flow(self, flow_ref: str) -> OAuthFlow:
         try:
@@ -149,9 +150,17 @@ class OAuthFlowManager:
         except KeyError:
             raise ValueError(f"Unknown OAuth flow {flow_ref!r}") from None
 
-    def start(self, flow_ref: str) -> None:
+    def start(self, flow_ref: str, *, force: bool = False) -> None:
         """Create a pending flow and publish its authorization link."""
         flow = self._get_flow(flow_ref)
+        if flow_ref in self._active_flows and not force:
+            self.app.log(
+                "OAuth authorization for %s is already in progress; "
+                "not creating another flow",
+                flow_ref,
+            )
+            return
+
         auth_link = self.broker.begin_authorization(
             self.app.name,
             flow.ref,
@@ -159,6 +168,7 @@ class OAuthFlowManager:
             flow.client,
             flow.auth_params,
         )
+        self._active_flows.add(flow_ref)
         self._set_reauth(
             flow,
             needs_reauth=True,
@@ -212,11 +222,44 @@ class OAuthFlowManager:
             needs_authorization = str(error).startswith("No existing credentials found")
         else:
             response = error.response
+            error_code: str | None = None
+            safe_url = "unknown"
+            if response is not None:
+                parsed_url = urlsplit(str(response.url))
+                safe_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
+                try:
+                    response_data = response.json()
+                except ValueError:
+                    response_data = None
+                if isinstance(response_data, dict):
+                    raw_error_code = response_data.get("code") or response_data.get(
+                        "error",
+                    )
+                    if isinstance(raw_error_code, str):
+                        error_code = raw_error_code
+
+                self.app.log(
+                    "OAuth API error for %s: status=%s url=%s code=%s",
+                    flow_ref,
+                    response.status_code,
+                    safe_url,
+                    error_code or "unknown",
+                )
+
             needs_authorization = response is not None and (
-                response.status_code in {HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN}
+                response.status_code == HTTPStatus.UNAUTHORIZED
                 or (
                     response.status_code == HTTPStatus.BAD_REQUEST
-                    and response.url == flow.client.access_token_endpoint
+                    and str(response.url) == flow.client.access_token_endpoint
+                )
+                or (
+                    flow.provider == OAuthProvider.MONZO
+                    and response.status_code == HTTPStatus.FORBIDDEN
+                    and error_code
+                    in {
+                        "forbidden.insufficient_permissions",
+                        "forbidden.verification_required",
+                    }
                 )
             )
 
@@ -239,6 +282,7 @@ class OAuthFlowManager:
             return
 
         self._notification_generations[flow_ref] = generation + 1
+        self._active_flows.discard(flow_ref)
         flow = self._get_flow(flow_ref)
         self._set_reauth(flow, needs_reauth=True)
         self._dismiss_notification(flow)
@@ -279,6 +323,7 @@ class OAuthFlowManager:
         attempts = self._retry_attempts.get(flow_ref, 0) + 1
         self._retry_attempts[flow_ref] = attempts
         if attempts >= retry_policy.max_attempts:
+            self._active_flows.discard(flow_ref)
             self.app.error(
                 "OAuth initialization for %s failed after %i attempts; "
                 "leaving reauth state set",
@@ -296,6 +341,7 @@ class OAuthFlowManager:
     def clear(self, flow_ref: str) -> None:
         """Clear the flow's notification and reauth state."""
         flow = self._get_flow(flow_ref)
+        self._active_flows.discard(flow_ref)
         self._notification_generations[flow_ref] = (
             self._notification_generations.get(flow_ref, 0) + 1
         )
@@ -349,7 +395,7 @@ class OAuthFlowConsumerMixin:
 
     def oauth_authorization_failed(self, flow_ref: str) -> None:
         """Issue a fresh authorization link after a rejected callback."""
-        self.oauth.start(flow_ref)
+        self.oauth.start(flow_ref, force=True)
 
 
 def recover_oauth_errors(
