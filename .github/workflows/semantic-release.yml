@@ -7,11 +7,13 @@ on:
       - main
     paths:
       - apps/**
+      - '!pyproject.toml'
 
   workflow_dispatch:
     inputs:
       force-deployment:
-        description: Force a release at a specific level, bypassing normal detection
+        description: >-
+          Version component to force, or auto to use semantic commit parsing.
         required: false
         type: choice
         default: auto
@@ -21,10 +23,14 @@ on:
           - minor
           - major
 
+concurrency:
+  group: semantic-release
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Release
-    uses: worgarside/github-config-files/.github/workflows/__semantic-release.yml@main
+    uses: worgarside/github-config-files/.github/workflows/__semantic-release.yml@0.5.3
     with:
       python-version: '3.12'
       force-deployment: ${{ inputs.force-deployment != 'auto' && inputs.force-deployment || '' }}
