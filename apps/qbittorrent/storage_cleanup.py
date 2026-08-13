@@ -30,9 +30,11 @@ class TorrentCandidate:
     size: int
     ratio: float
     ratio_limit: float | None
+    upload_speed: int
     seeding_seconds: int
     time_limit_seconds: float | None
     closeness: float
+    deletion_score: float
     closest_limit: str
 
     @property
@@ -57,6 +59,11 @@ class TorrentCandidate:
             return f"{progress} of its {days:g}-day seeding limit"
         return f"{progress} towards its share limit"
 
+    @property
+    def is_uploading(self) -> bool:
+        """Return whether qBittorrent reports active upload traffic."""
+        return self.upload_speed > 0
+
 
 class QbittorrentWebApi:
     """Small authenticated client for the qBittorrent Web API."""
@@ -67,11 +74,13 @@ class QbittorrentWebApi:
         username: str,
         password: str,
         *,
+        ratio_progress_weight: float,
         timeout: float,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.username = username
         self.password = password
+        self.ratio_progress_weight = ratio_progress_weight
         self.timeout = timeout
 
     def ranked_seeders(self) -> list[TorrentCandidate]:
@@ -88,7 +97,11 @@ class QbittorrentWebApi:
                     params={"filter": "seeding"},
                 ),
             )
-        return rank_seeders(torrents, preferences)
+        return rank_seeders(
+            torrents,
+            preferences,
+            ratio_progress_weight=self.ratio_progress_weight,
+        )
 
     def delete_with_files(self, torrent_hash: str) -> None:
         """Delete one exact torrent and its downloaded content."""
@@ -196,20 +209,21 @@ def _effective_time_limit_seconds(
     global_enabled: bool,
 ) -> float | None:
     """Resolve a per-torrent seeding limit to seconds."""
-    limit_seconds = _as_float(torrent_limit, USE_GLOBAL_LIMIT)
-    if limit_seconds == USE_GLOBAL_LIMIT:
+    limit_minutes = _as_float(torrent_limit, USE_GLOBAL_LIMIT)
+    if limit_minutes == USE_GLOBAL_LIMIT:
         if not global_enabled:
             return None
-        global_minutes = _as_float(global_limit_minutes, -1)
-        return global_minutes * SECONDS_PER_MINUTE if global_minutes > 0 else None
-    return limit_seconds if limit_seconds > 0 else None
+        limit_minutes = _as_float(global_limit_minutes, -1)
+    return limit_minutes * SECONDS_PER_MINUTE if limit_minutes > 0 else None
 
 
 def rank_seeders(
     torrents: list[dict[str, Any]],
     preferences: dict[str, Any],
+    *,
+    ratio_progress_weight: float = 1.0,
 ) -> list[TorrentCandidate]:
-    """Rank seeders by the nearer of their effective ratio and time limits."""
+    """Rank seeders by weighted ratio progress or unweighted time progress."""
     global_ratio_enabled = bool(preferences.get("max_ratio_enabled", True))
     global_time_enabled = bool(preferences.get("max_seeding_time_enabled", True))
     global_ratio_limit = preferences.get("max_ratio", -1)
@@ -240,7 +254,9 @@ def rank_seeders(
         time_progress = (
             seeding_seconds / time_limit_seconds if time_limit_seconds else 0.0
         )
-        closest_limit = "ratio" if ratio_progress >= time_progress else "time"
+        weighted_ratio_progress = ratio_progress * ratio_progress_weight
+        ratio_is_closer = weighted_ratio_progress >= time_progress
+        closest_limit = "ratio" if ratio_is_closer else "time"
         ranked.append(
             TorrentCandidate(
                 hash=torrent_hash,
@@ -251,16 +267,18 @@ def rank_seeders(
                 ),
                 ratio=ratio,
                 ratio_limit=ratio_limit,
+                upload_speed=max(_as_int(torrent.get("upspeed")), 0),
                 seeding_seconds=seeding_seconds,
                 time_limit_seconds=time_limit_seconds,
-                closeness=max(ratio_progress, time_progress),
+                closeness=ratio_progress if ratio_is_closer else time_progress,
+                deletion_score=max(weighted_ratio_progress, time_progress),
                 closest_limit=closest_limit,
             ),
         )
 
     return sorted(
         ranked,
-        key=lambda item: (item.closeness, item.seeding_seconds, item.ratio),
+        key=lambda item: (item.deletion_score, item.seeding_seconds, item.ratio),
         reverse=True,
     )
 
@@ -282,6 +300,10 @@ class QbittorrentStorageCleanup(Hass):
             str(self.args["qbittorrent_url"]),
             str(self.args["qbittorrent_username"]),
             str(self.args["qbittorrent_password"]),
+            ratio_progress_weight=max(
+                float(self.args.get("ratio_progress_weight", 1.0)),
+                0.0,
+            ),
             timeout=float(self.args.get("request_timeout", 15)),
         )
         self._threshold_active = False
@@ -352,7 +374,18 @@ class QbittorrentStorageCleanup(Hass):
             )
             return
 
-        candidate = ranked[0]
+        candidate = next((item for item in ranked if not item.is_uploading), None)
+        if candidate is None:
+            self._notify(
+                title="qBittorrent storage full",
+                message=(
+                    f"Storage is at {usage:.1f}%, but every eligible seeding torrent "
+                    "is currently uploading. Nothing will be offered for deletion."
+                ),
+                icon="mdi:upload-network",
+            )
+            return
+
         self._notify(
             title="Delete qBittorrent torrent?",
             message=(
@@ -428,6 +461,22 @@ class QbittorrentStorageCleanup(Hass):
                 title="Torrent was not deleted",
                 message=f"qBittorrent reported: {error}",
                 icon="mdi:delete-alert",
+            )
+            return
+
+        if candidate.is_uploading:
+            self.log(
+                "Refused deletion of %s because it is now uploading at %i B/s",
+                candidate.name,
+                candidate.upload_speed,
+            )
+            self._notify(
+                title="Torrent was not deleted",
+                message=(
+                    f"{candidate.name} started uploading after the notification "
+                    "was sent, so it has been left alone."
+                ),
+                icon="mdi:upload-network",
             )
             return
 

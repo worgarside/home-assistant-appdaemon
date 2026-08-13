@@ -44,6 +44,7 @@ qbittorrent_storage_cleanup:
   storage_entity: sensor.storage_cc_scratch_qbt_disk_used_percentage
   threshold: 99.9
   reset_below: 99.0
+  ratio_progress_weight: 1.25  # Makes ratio 4/5 tie with time 28/28 days.
   request_timeout: 15
 
   qbittorrent_url: !secret qbittorrent_url

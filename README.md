@@ -7,6 +7,12 @@ sensor. When usage crosses 99.9%, it asks qBittorrent for the completed torrents
 currently seeding and ranks them by the nearer of their effective ratio and seeding
 time limits. The notification identifies the nearest candidate by name, size, and
 ratio and includes an action to delete that exact torrent and its content.
+Torrents currently transferring upload data are skipped, and this is checked again
+when the notification action is pressed.
+
+Ratio progress has a configurable `1.25` weighting when candidates are ordered. A
+torrent at ratio `4 / 5` therefore ranks alongside one at its full seeding-time limit,
+while notification progress remains the unweighted value of the actual limit.
 
 The app re-fetches the seeding list before acting on the notification, so it never
 substitutes a newly ranked torrent for the one that was confirmed. Both qBittorrent
