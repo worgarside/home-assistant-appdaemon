@@ -36,6 +36,24 @@ cursor_usage_monitor:
   mqtt_device_name: Cursor
   mqtt_base_topic: appdaemon/cursor_usage
 
+# qBittorrent Storage Cleanup
+
+qbittorrent_storage_cleanup:
+  module: storage_cleanup
+  class: QbittorrentStorageCleanup
+  storage_entity: sensor.storage_cc_scratch_qbt_disk_used_percentage
+  threshold: 99.9
+  reset_below: 99.0
+  request_timeout: 15
+
+  qbittorrent_url: !secret qbittorrent_url
+  qbittorrent_username: !secret qbittorrent_username
+  qbittorrent_password: !secret qbittorrent_password
+
+  notify_script: script.notify_will
+  notification_id: qbt_storage_cleanup
+  notification_url: !secret qbittorrent_url
+
 # Habit and Mood Tracker
 
 habit_tracker:
