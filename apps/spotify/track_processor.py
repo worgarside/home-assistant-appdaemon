@@ -135,10 +135,6 @@ class SpotifyTrackProcessor(OAuthFlowConsumerMixin, Hass):
         if not self._callbacks_registered:
             self.run_every(self.process_liked_tracks, "immediate", 15 * 60)
             self.listen_state(self.process_now_playing, "var.tasker_pixel_now_playing")
-            self.listen_state(
-                self.update_tempo_variable,
-                "sensor.spotify_will_garside_media_title",
-            )
             self.listen_event(
                 self.add_track_to_playlist,
                 "mobile_app_notification_action",
@@ -362,72 +358,6 @@ class SpotifyTrackProcessor(OAuthFlowConsumerMixin, Hass):
                 )
         else:
             self.error("No matching track found for search term '%s'", search_term)
-
-    @recover_oauth_errors("track_processor")
-    def update_tempo_variable(
-        self,
-        entity: str,
-        attribute: str,
-        old: Any,
-        new: Any,
-        **kwargs: Any,
-    ) -> None:
-        """Update the tempo variable for a given user.
-
-        Args:
-            entity (str): the entity that triggered the update
-            attribute (str): the attribute that triggered the update
-            old (str): the old value
-            new (str): the new value
-            kwargs (dict[str, Any]): any other kwargs
-        """
-        _ = entity, old, kwargs
-
-        if attribute != "state" or not new:
-            return
-
-        tempo_variable_name = "var.spotify_tempo_will"
-
-        if new in {"unknown", None, ""}:
-            self.log(
-                "`%s` has state `%s`, setting `%s` to `unknown`",
-                entity,
-                new,
-                tempo_variable_name,
-            )
-            self.call_service(
-                "var/set",
-                entity_id=tempo_variable_name,
-                value="unknown",
-                force_update=True,
-            )
-        else:
-            media_content_id = self.get_state(
-                "media_player.spotify_will",
-                attribute="media_content_id",
-            )
-            if not isinstance(media_content_id, str):
-                self.error("Unexpected media content ID: %r", media_content_id)
-                return
-
-            track_id = media_content_id.replace("spotify:track:", "")
-
-            track = self.spotify.get_track_by_id(track_id)
-
-            self.log(
-                "`%s` has state `%s`, setting `%s` to `%i`",
-                entity,
-                new,
-                tempo_variable_name,
-                track.tempo,
-            )
-
-            self.call_service(
-                "var/set",
-                entity_id=tempo_variable_name,
-                value=track.tempo,
-                force_update=True,
-            )
 
     @recover_oauth_errors("track_processor")
     def update_top_track_playlists(self, _: dict[str, Any]) -> None:
