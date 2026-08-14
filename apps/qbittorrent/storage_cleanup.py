@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from json import dumps
 from re import compile as compile_regex
 from typing import Any, Final
 
@@ -406,7 +405,6 @@ class QbittorrentStorageCleanup(Hass):
                 {
                     "action": f"{ACTION_PREFIX}{candidate.hash}",
                     "title": "Delete torrent",
-                    "destructive": True,
                 },
             ],
         )
@@ -518,7 +516,9 @@ class QbittorrentStorageCleanup(Hass):
             "mobile_notification_icon": icon,
             "sticky": sticky,
             "persistent": persistent,
-            "actions": dumps(actions or []),
+            # Keep this as a native list: script.notify_will forwards it directly
+            # to the companion app's `data.actions` notification field.
+            "actions": actions or [],
         }
         if self.notification_url:
             variables["url"] = self.notification_url
