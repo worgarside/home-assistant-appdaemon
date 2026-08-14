@@ -290,6 +290,10 @@ class QbittorrentStorageCleanup(Hass):
         self.storage_entity = str(self.args["storage_entity"])
         self.threshold = float(self.args.get("threshold", 99.9))
         self.reset_below = float(self.args.get("reset_below", self.threshold))
+        self.post_delete_check_delay = max(
+            float(self.args.get("post_delete_check_delay", 90)),
+            1.0,
+        )
         self.notify_script = str(self.args.get("notify_script", "script.notify_will"))
         self.notification_id = str(
             self.args.get("notification_id", "qbt_storage_cleanup"),
@@ -306,6 +310,7 @@ class QbittorrentStorageCleanup(Hass):
             timeout=float(self.args.get("request_timeout", 15)),
         )
         self._threshold_active = False
+        self._post_delete_check_pending = False
 
         self.listen_state(self._storage_changed, self.storage_entity)
         self.listen_event(
@@ -334,6 +339,9 @@ class QbittorrentStorageCleanup(Hass):
         old_usage = self._usage(old)
         new_usage = self._usage(new)
         if new_usage is None:
+            return
+
+        if self._post_delete_check_pending:
             return
 
         if new_usage < self.reset_below:
@@ -497,6 +505,23 @@ class QbittorrentStorageCleanup(Hass):
             sticky=False,
         )
         self.log("Deleted confirmed torrent %s (%s)", candidate.name, torrent_hash)
+        self._threshold_active = False
+        self._post_delete_check_pending = True
+        self.run_in(self._post_delete_check, self.post_delete_check_delay)
+
+    def _post_delete_check(self, _kwargs: dict[str, Any]) -> None:
+        """Offer another deletion if storage remains full after sensor refresh."""
+        self._post_delete_check_pending = False
+        usage = self._usage(self.get_state(self.storage_entity))
+        if usage is None or usage < self.threshold:
+            return
+
+        self._threshold_active = True
+        self.log(
+            "Storage remains at %.1f%% after deletion; offering another torrent",
+            usage,
+        )
+        self._offer_cleanup(usage)
 
     def _notify(
         self,

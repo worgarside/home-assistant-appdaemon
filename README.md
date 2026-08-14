@@ -10,6 +10,10 @@ ratio and includes an action to delete that exact torrent and its content.
 Torrents currently transferring upload data are skipped, and this is checked again
 when the notification action is pressed.
 
+After a confirmed deletion, the app waits 90 seconds for the storage sensor to
+refresh. It then re-arms the threshold and offers the next eligible torrent only if
+usage is still at or above 99.9%, with a separate confirmation required each time.
+
 Ratio progress has a configurable `1.25` weighting when candidates are ordered. A
 torrent at ratio `4 / 5` therefore ranks alongside one at its full seeding-time limit,
 while notification progress remains the unweighted value of the actual limit.
