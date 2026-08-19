@@ -1,5 +1,39 @@
 # Home Assistant: AppDaemon
 
+## qBittorrent Storage Cleanup
+
+`apps/qbittorrent/storage_cleanup.py` watches the qBittorrent scratch-storage
+sensor. When usage crosses 99.9%, it asks qBittorrent for the completed torrents
+currently seeding and ranks them by the nearer of their effective ratio and seeding
+time limits. The notification identifies the nearest candidate by name, size, and
+ratio and includes an action to delete that exact torrent and its content.
+Torrents currently transferring upload data are skipped, and this is checked again
+when the notification action is pressed.
+
+After a confirmed deletion, the app waits 90 seconds for the storage sensor to
+refresh. It then re-arms the threshold and offers the next eligible torrent only if
+usage is still at or above 99.9%, with a separate confirmation required each time.
+
+Ratio progress has a configurable `1.25` weighting when candidates are ordered. A
+torrent at ratio `4 / 5` therefore ranks alongside one at its full seeding-time limit,
+while notification progress remains the unweighted value of the actual limit.
+
+The app re-fetches the seeding list before acting on the notification, so it never
+substitutes a newly ranked torrent for the one that was confirmed. Both qBittorrent
+v1 and v2 info hashes are accepted. The global limits are read from qBittorrent at
+runtime; per-torrent overrides and disabled limits are respected.
+
+Add these values to `/homeassistant/secrets.yaml`, which is shared with AppDaemon:
+
+```yaml
+qbittorrent_url: http://<qBittorrent-host>:<Web-UI-port>
+qbittorrent_username: <Web-UI-username>
+qbittorrent_password: <Web-UI-password>
+```
+
+The configured qBittorrent user must be allowed to list torrents and delete torrent
+content. No additional Python runtime dependency is required.
+
 ## Student Loan (SLC)
 
 `apps/slc/slc_balance.py` polls the UK Student Loans Company account overview and
