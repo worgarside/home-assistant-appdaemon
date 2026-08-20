@@ -42,6 +42,7 @@ qbittorrent_storage_cleanup:
   module: storage_cleanup
   class: QbittorrentStorageCleanup
   storage_entity: sensor.storage_cc_scratch_qbt_disk_used_percentage
+  threshold_entity: input_number.qbittorrent_storage_cleanup_threshold
   threshold: 99.9
   reset_below: 99.0
   post_delete_check_delay: 90

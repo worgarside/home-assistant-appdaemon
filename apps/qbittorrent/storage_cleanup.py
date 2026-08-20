@@ -339,8 +339,11 @@ class QbittorrentStorageCleanup(Hass):
     def initialize(self) -> None:
         """Register storage and notification-action listeners."""
         self.storage_entity = str(self.args["storage_entity"])
-        self.threshold = float(self.args.get("threshold", 99.9))
-        self.reset_below = float(self.args.get("reset_below", self.threshold))
+        self.threshold_entity = str(self.args.get("threshold_entity", ""))
+        self.default_threshold = float(self.args.get("threshold", 99.9))
+        self.reset_below = float(
+            self.args.get("reset_below", self.default_threshold),
+        )
         self.post_delete_check_delay = max(
             float(self.args.get("post_delete_check_delay", 90)),
             1.0,
@@ -364,6 +367,8 @@ class QbittorrentStorageCleanup(Hass):
         self._post_delete_check_pending = False
 
         self.listen_state(self._storage_changed, self.storage_entity)
+        if self.threshold_entity:
+            self.listen_state(self._threshold_changed, self.threshold_entity)
         self.listen_event(
             self._notification_action,
             "mobile_app_notification_action",
@@ -373,7 +378,7 @@ class QbittorrentStorageCleanup(Hass):
     def _startup_check(self, _kwargs: dict[str, Any]) -> None:
         """Offer cleanup after reload when storage is already over the threshold."""
         usage = self._usage(self.get_state(self.storage_entity))
-        if usage is not None and usage >= self.threshold:
+        if usage is not None and usage >= self._current_threshold():
             self._threshold_active = True
             self._offer_cleanup(usage)
 
@@ -395,19 +400,47 @@ class QbittorrentStorageCleanup(Hass):
         if self._post_delete_check_pending:
             return
 
-        if new_usage < self.reset_below:
+        threshold = self._current_threshold()
+        if new_usage < min(self.reset_below, threshold):
             if self._threshold_active:
                 self._clear_notification()
                 self._restart_errored_torrents()
             self._threshold_active = False
             return
 
-        crossed_threshold = new_usage >= self.threshold and (
-            old_usage is None or old_usage < self.threshold
+        crossed_threshold = new_usage >= threshold and (
+            old_usage is None or old_usage < threshold
         )
         if crossed_threshold and not self._threshold_active:
             self._threshold_active = True
             self._offer_cleanup(new_usage)
+
+    def _threshold_changed(
+        self,
+        entity: str,
+        attribute: str,
+        old: Any,
+        new: Any,
+        **kwargs: Any,
+    ) -> None:
+        """Re-evaluate cleanup when the configured threshold changes."""
+        del entity, attribute, kwargs
+        old_threshold = self._usage(old)
+        new_threshold = self._usage(new)
+        usage = self._usage(self.get_state(self.storage_entity))
+        if new_threshold is None or usage is None or self._post_delete_check_pending:
+            return
+
+        if usage < new_threshold:
+            if self._threshold_active:
+                self._clear_notification()
+            self._threshold_active = False
+            return
+
+        crossed_threshold = old_threshold is None or usage < old_threshold
+        if crossed_threshold and not self._threshold_active:
+            self._threshold_active = True
+            self._offer_cleanup(usage)
 
     def _offer_cleanup(self, usage: float) -> None:
         """Find the nearest-limit torrent and send a confirmation notification."""
@@ -567,16 +600,19 @@ class QbittorrentStorageCleanup(Hass):
         usage = self._usage(self.get_state(self.storage_entity))
         if usage is None:
             return
-        if usage < self.threshold:
+        threshold = self._current_threshold()
+        if usage >= threshold:
+            self._threshold_active = True
+            self.log(
+                "Storage remains at %.1f%% after deletion; offering another torrent",
+                usage,
+            )
+            self._offer_cleanup(usage)
+            return
+        if usage < min(self.reset_below, threshold):
             self._restart_errored_torrents()
             return
-
         self._threshold_active = True
-        self.log(
-            "Storage remains at %.1f%% after deletion; offering another torrent",
-            usage,
-        )
-        self._offer_cleanup(usage)
 
     def _restart_errored_torrents(self) -> None:
         """Restart torrents that errored while scratch storage was full."""
@@ -599,6 +635,13 @@ class QbittorrentStorageCleanup(Hass):
                 len(restarted),
                 ", ".join(restarted),
             )
+
+    def _current_threshold(self) -> float:
+        """Return the helper value, falling back to the YAML threshold."""
+        if not self.threshold_entity:
+            return self.default_threshold
+        threshold = self._usage(self.get_state(self.threshold_entity))
+        return self.default_threshold if threshold is None else threshold
 
     def _notify(
         self,
