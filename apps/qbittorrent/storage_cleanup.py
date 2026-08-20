@@ -1,4 +1,4 @@
-"""Offer deletion of the seeding torrent closest to its share limit."""
+"""Offer torrent deletion when storage is full and restart errored torrents."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from requests import RequestException, Response, Session
 
 BYTES_PER_UNIT: Final = 1024
 SECONDS_PER_MINUTE: Final = 60
+QBITTORRENT_START_API_MAJOR: Final = 5
 USE_GLOBAL_LIMIT: Final = -2.0
 ACTION_PREFIX: Final = "DELETE_QBT_TORRENT_"
 TORRENT_HASH_PATTERN: Final = compile_regex(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
@@ -112,6 +113,47 @@ class QbittorrentWebApi:
                 data={"hashes": torrent_hash, "deleteFiles": "true"},
             )
 
+    def restart_errored(self) -> list[str]:
+        """Start torrents currently reported in qBittorrent's errored filter."""
+        with self._authenticated_session() as session:
+            version = self._request(
+                session,
+                "GET",
+                "/api/v2/app/version",
+            ).text.strip()
+            torrents = self._json_list(
+                self._request(
+                    session,
+                    "GET",
+                    "/api/v2/torrents/info",
+                    params={"filter": "errored"},
+                ),
+            )
+            errored = [
+                torrent
+                for torrent in torrents
+                if TORRENT_HASH_PATTERN.fullmatch(
+                    str(torrent.get("hash", "")).lower(),
+                )
+            ]
+            if not errored:
+                return []
+
+            hashes = "|".join(str(torrent["hash"]).lower() for torrent in errored)
+            endpoint = (
+                "start"
+                if _qbittorrent_major_version(version) >= QBITTORRENT_START_API_MAJOR
+                else "resume"
+            )
+            self._request(
+                session,
+                "POST",
+                f"/api/v2/torrents/{endpoint}",
+                data={"hashes": hashes},
+            )
+
+        return [str(torrent.get("name", "Unknown torrent")) for torrent in errored]
+
     def _authenticated_session(self) -> Session:
         session = Session()
         session.headers.update({"Referer": f"{self.base_url}/"})
@@ -186,6 +228,15 @@ def _as_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _qbittorrent_major_version(version: str) -> int:
+    """Extract the qBittorrent major version, defaulting to the current API."""
+    normalized = version.strip().removeprefix("v")
+    try:
+        return int(normalized.split(".", maxsplit=1)[0])
+    except ValueError:
+        return QBITTORRENT_START_API_MAJOR
 
 
 def _effective_limit(
@@ -347,6 +398,7 @@ class QbittorrentStorageCleanup(Hass):
         if new_usage < self.reset_below:
             if self._threshold_active:
                 self._clear_notification()
+                self._restart_errored_torrents()
             self._threshold_active = False
             return
 
@@ -510,10 +562,13 @@ class QbittorrentStorageCleanup(Hass):
         self.run_in(self._post_delete_check, self.post_delete_check_delay)
 
     def _post_delete_check(self, _kwargs: dict[str, Any]) -> None:
-        """Offer another deletion if storage remains full after sensor refresh."""
+        """Restart errored torrents or offer another deletion after refresh."""
         self._post_delete_check_pending = False
         usage = self._usage(self.get_state(self.storage_entity))
-        if usage is None or usage < self.threshold:
+        if usage is None:
+            return
+        if usage < self.threshold:
+            self._restart_errored_torrents()
             return
 
         self._threshold_active = True
@@ -522,6 +577,28 @@ class QbittorrentStorageCleanup(Hass):
             usage,
         )
         self._offer_cleanup(usage)
+
+    def _restart_errored_torrents(self) -> None:
+        """Restart torrents that errored while scratch storage was full."""
+        try:
+            restarted = self.client.restart_errored()
+        except QbittorrentError as error:
+            self.error("Unable to restart errored qBittorrent torrents: %s", error)
+            self._notify(
+                title="Torrents were not restarted",
+                message=f"qBittorrent reported: {error}",
+                icon="mdi:restart-alert",
+                persistent=False,
+                sticky=False,
+            )
+            return
+
+        if restarted:
+            self.log(
+                "Restarted %i errored qBittorrent torrent(s): %s",
+                len(restarted),
+                ", ".join(restarted),
+            )
 
     def _notify(
         self,

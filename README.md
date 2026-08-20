@@ -13,6 +13,10 @@ when the notification action is pressed.
 After a confirmed deletion, the app waits 90 seconds for the storage sensor to
 refresh. It then re-arms the threshold and offers the next eligible torrent only if
 usage is still at or above 99.9%, with a separate confirmation required each time.
+Once usage falls below the threshold, the app finds torrents in qBittorrent's
+`errored` filter and starts them again. This recovers downloads that stopped when
+the scratch disk ran out of space; qBittorrent 4's `resume` and qBittorrent 5's
+`start` Web API operations are both supported.
 
 Ratio progress has a configurable `1.25` weighting when candidates are ordered. A
 torrent at ratio `4 / 5` therefore ranks alongside one at its full seeding-time limit,
@@ -31,8 +35,8 @@ qbittorrent_username: <Web-UI-username>
 qbittorrent_password: <Web-UI-password>
 ```
 
-The configured qBittorrent user must be allowed to list torrents and delete torrent
-content. No additional Python runtime dependency is required.
+The configured qBittorrent user must be allowed to list, start, and delete torrents
+and their content. No additional Python runtime dependency is required.
 
 ## Student Loan (SLC)
 
