@@ -12,13 +12,10 @@ Torrents currently transferring upload data are skipped, and this is checked aga
 when the notification action is pressed.
 
 After a confirmed deletion, the app waits 90 seconds for the storage sensor to
-refresh. It then re-arms the threshold and offers the next eligible torrent only if
+refresh. It then restarts errored torrents and offers the next eligible torrent if
 usage is still at or above the configured threshold, with a separate confirmation
-required each time.
-Errored torrents are only started again once usage falls below `reset_below`
-(99.0% by default), so a deletion that barely dips under the threshold does not
-immediately refill the disk. qBittorrent 4's `resume` and qBittorrent 5's `start`
-Web API operations are both supported.
+required each time. qBittorrent 4's `resume` and qBittorrent 5's `start` Web API
+operations are both supported.
 
 The cleanup threshold is read from
 `input_number.qbittorrent_storage_cleanup_threshold` and changes take effect without

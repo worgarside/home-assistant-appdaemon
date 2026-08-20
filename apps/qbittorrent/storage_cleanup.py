@@ -431,16 +431,21 @@ class QbittorrentStorageCleanup(Hass):
         if new_threshold is None or usage is None or self._post_delete_check_pending:
             return
 
-        if usage < new_threshold:
+        if usage >= new_threshold:
+            crossed_threshold = old_threshold is None or usage < old_threshold
+            if crossed_threshold and not self._threshold_active:
+                self._offer_cleanup(usage)
+            self._threshold_active = True
+            return
+
+        if usage < min(self.reset_below, new_threshold):
             if self._threshold_active:
                 self._clear_notification()
+                self._restart_errored_torrents()
             self._threshold_active = False
             return
 
-        crossed_threshold = old_threshold is None or usage < old_threshold
-        if crossed_threshold and not self._threshold_active:
-            self._threshold_active = True
-            self._offer_cleanup(usage)
+        self._threshold_active = True
 
     def _offer_cleanup(self, usage: float) -> None:
         """Find the nearest-limit torrent and send a confirmation notification."""
@@ -600,6 +605,7 @@ class QbittorrentStorageCleanup(Hass):
         usage = self._usage(self.get_state(self.storage_entity))
         if usage is None:
             return
+        self._restart_errored_torrents()
         threshold = self._current_threshold()
         if usage >= threshold:
             self._threshold_active = True
@@ -609,13 +615,10 @@ class QbittorrentStorageCleanup(Hass):
             )
             self._offer_cleanup(usage)
             return
-        if usage < min(self.reset_below, threshold):
-            self._restart_errored_torrents()
-            return
-        self._threshold_active = True
+        self._threshold_active = False
 
     def _restart_errored_torrents(self) -> None:
-        """Restart torrents that errored while scratch storage was full."""
+        """Restart errored torrents after deleting scratch-storage content."""
         try:
             restarted = self.client.restart_errored()
         except QbittorrentError as error:
