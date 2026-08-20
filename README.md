@@ -3,16 +3,23 @@
 ## qBittorrent Storage Cleanup
 
 `apps/qbittorrent/storage_cleanup.py` watches the qBittorrent scratch-storage
-sensor. When usage crosses 99.9%, it asks qBittorrent for the completed torrents
-currently seeding and ranks them by the nearer of their effective ratio and seeding
-time limits. The notification identifies the nearest candidate by name, size, and
-ratio and includes an action to delete that exact torrent and its content.
+sensor. When usage crosses the threshold configured in Home Assistant, it asks
+qBittorrent for the completed torrents currently seeding and ranks them by the nearer
+of their effective ratio and seeding time limits. The notification identifies the
+nearest candidate by name, size, and ratio and includes an action to delete that exact
+torrent and its content.
 Torrents currently transferring upload data are skipped, and this is checked again
 when the notification action is pressed.
 
 After a confirmed deletion, the app waits 90 seconds for the storage sensor to
-refresh. It then re-arms the threshold and offers the next eligible torrent only if
-usage is still at or above 99.9%, with a separate confirmation required each time.
+refresh. It then restarts errored torrents and offers the next eligible torrent if
+usage is still at or above the configured threshold, with a separate confirmation
+required each time.
+
+The cleanup threshold is read from
+`input_number.qbittorrent_storage_cleanup_threshold` and changes take effect without
+reloading AppDaemon. The `threshold` value in `apps/apps.yaml` remains the fallback
+while the helper is unavailable.
 
 Ratio progress has a configurable `1.25` weighting when candidates are ordered. A
 torrent at ratio `4 / 5` therefore ranks alongside one at its full seeding-time limit,
@@ -31,8 +38,8 @@ qbittorrent_username: <Web-UI-username>
 qbittorrent_password: <Web-UI-password>
 ```
 
-The configured qBittorrent user must be allowed to list torrents and delete torrent
-content. No additional Python runtime dependency is required.
+The configured qBittorrent user must be allowed to list, start, and delete torrents
+and their content. No additional Python runtime dependency is required.
 
 ## Student Loan (SLC)
 
