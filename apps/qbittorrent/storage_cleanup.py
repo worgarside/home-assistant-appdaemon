@@ -11,7 +11,6 @@ from requests import RequestException, Response, Session
 
 BYTES_PER_UNIT: Final = 1024
 SECONDS_PER_MINUTE: Final = 60
-QBITTORRENT_START_API_MAJOR: Final = 5
 USE_GLOBAL_LIMIT: Final = -2.0
 ACTION_PREFIX: Final = "DELETE_QBT_TORRENT_"
 TORRENT_HASH_PATTERN: Final = compile_regex(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
@@ -116,11 +115,6 @@ class QbittorrentWebApi:
     def restart_errored(self) -> list[str]:
         """Start torrents currently reported in qBittorrent's errored filter."""
         with self._authenticated_session() as session:
-            version = self._request(
-                session,
-                "GET",
-                "/api/v2/app/version",
-            ).text.strip()
             torrents = self._json_list(
                 self._request(
                     session,
@@ -140,15 +134,10 @@ class QbittorrentWebApi:
                 return []
 
             hashes = "|".join(str(torrent["hash"]).lower() for torrent in errored)
-            endpoint = (
-                "start"
-                if _qbittorrent_major_version(version) >= QBITTORRENT_START_API_MAJOR
-                else "resume"
-            )
             self._request(
                 session,
                 "POST",
-                f"/api/v2/torrents/{endpoint}",
+                "/api/v2/torrents/start",
                 data={"hashes": hashes},
             )
 
@@ -228,15 +217,6 @@ def _as_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
-
-
-def _qbittorrent_major_version(version: str) -> int:
-    """Extract the qBittorrent major version, defaulting to the current API."""
-    normalized = version.strip().removeprefix("v")
-    try:
-        return int(normalized.split(".", maxsplit=1)[0])
-    except ValueError:
-        return QBITTORRENT_START_API_MAJOR
 
 
 def _effective_limit(
