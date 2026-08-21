@@ -248,7 +248,12 @@ class HabitMqtt:
                 "",
             )
 
-    def publish_mood_discovery(self, users: Iterable[str]) -> None:
+    def publish_mood_discovery(
+        self,
+        users: Iterable[str],
+        *,
+        editor_options: dict[str, list[str]] | None = None,
+    ) -> None:
         """Publish user-level mood and habit-count entities."""
         for user in users:
             display = user.title()
@@ -265,6 +270,13 @@ class HabitMqtt:
                     "mood_streak",
                     "Mood streak",
                     {"unit_of_measurement": "days", "icon": "mdi:fire"},
+                    configurable=False,
+                ),
+                EntitySpec(
+                    "sensor",
+                    "mood_summary",
+                    "Mood summary",
+                    {"icon": "mdi:chart-timeline-variant"},
                     configurable=False,
                 ),
                 EntitySpec(
@@ -305,6 +317,72 @@ class HabitMqtt:
                     },
                 ),
                 EntitySpec(
+                    "switch",
+                    "mood_context_prompts",
+                    "Mood contextual prompts",
+                    {},
+                ),
+                EntitySpec(
+                    "number",
+                    "mood_context_cooldown",
+                    "Mood contextual cooldown",
+                    {
+                        "min": 15,
+                        "max": 360,
+                        "step": 15,
+                        "mode": "slider",
+                        "unit_of_measurement": "min",
+                    },
+                ),
+                EntitySpec(
+                    "select",
+                    "mood_edit_entry",
+                    "Mood editor entry",
+                    {
+                        "options": (editor_options or {}).get(
+                            user,
+                            ["New check-in"],
+                        ),
+                        "icon": "mdi:history",
+                    },
+                ),
+                EntitySpec(
+                    "date",
+                    "mood_edit_date",
+                    "Mood editor date",
+                    {"icon": "mdi:calendar-edit"},
+                ),
+                EntitySpec(
+                    "time",
+                    "mood_edit_time",
+                    "Mood editor time",
+                    {"icon": "mdi:clock-edit-outline"},
+                ),
+                EntitySpec(
+                    "select",
+                    "mood_edit_value",
+                    "Mood editor value",
+                    {"options": list(MOOD_OPTIONS[1:])},
+                ),
+                EntitySpec(
+                    "text",
+                    "mood_edit_note",
+                    "Mood editor note",
+                    {"max": 255, "icon": "mdi:note-edit-outline"},
+                ),
+                EntitySpec(
+                    "button",
+                    "mood_edit_save",
+                    "Mood editor save",
+                    {"icon": "mdi:content-save"},
+                ),
+                EntitySpec(
+                    "button",
+                    "mood_edit_delete",
+                    "Mood editor delete",
+                    {"icon": "mdi:delete-outline"},
+                ),
+                EntitySpec(
                     "sensor",
                     "habits_binary_count",
                     f"{display} | Habits Binary Count",
@@ -329,7 +407,6 @@ class HabitMqtt:
                     "name": spec.name,
                     "unique_id": f"appdaemon_{object_id}",
                     "default_entity_id": f"{spec.component}.{object_id}",
-                    "state_topic": self.topic(f"{state_path}/state"),
                     "availability_topic": self.topic("availability"),
                     "payload_available": "online",
                     "payload_not_available": "offline",
@@ -337,12 +414,18 @@ class HabitMqtt:
                     "origin": self._origin(),
                     **spec.extra,
                 }
+                if spec.component != "button":
+                    payload["state_topic"] = self.topic(f"{state_path}/state")
                 if spec.component != "sensor":
                     payload["command_topic"] = self.topic(f"{state_path}/set")
                 if spec.component == "switch":
                     payload.update({"payload_on": "ON", "payload_off": "OFF"})
                 if spec.configurable:
                     payload["entity_category"] = "config"
+                if spec.key in {"mood_streak", "mood_summary"}:
+                    payload["json_attributes_topic"] = self.topic(
+                        f"{state_path}/attributes",
+                    )
                 self.publish(self._config_topic(spec.component, object_id), payload)
 
     def subscribe_commands(self) -> None:
