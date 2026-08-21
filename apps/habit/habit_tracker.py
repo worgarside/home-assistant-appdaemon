@@ -145,6 +145,7 @@ class HabitTracker(hass.Hass):
         )
         self._watched_entities: dict[tuple[str, int], tuple[str, ...]] = {}
         self._template_errors: dict[tuple[str, int], str | None] = {}
+        self._requirement_errors: dict[tuple[str, int], str | None] = {}
         self._published_template_attributes: dict[
             tuple[str, int],
             dict[str, object],
@@ -161,16 +162,19 @@ class HabitTracker(hass.Hass):
         self.log("Habit tracker initialized for %s", ", ".join(self.users))
 
     def _restore_reminders_callback(self, _kwargs: dict[str, Any]) -> None:
-        self._restore_reminders()
         self._restore_templates()
+        self._restore_reminders()
         self.store.save()
 
     def _restore_templates(self) -> None:
-        """Re-subscribe every event-driven slot and evaluate it once."""
+        """Re-subscribe templates and establish requirements before reminders."""
         for user, data in self.store.data.users.items():
             for slot, config in data.habits.items():
                 self._rebuild_template_listeners(user, slot)
-                if config.configured and config.completion_mode.is_event_driven:
+                if not config.configured:
+                    continue
+                self._evaluate_requirement(user, slot, manage_reminders=False)
+                if config.completion_mode.is_event_driven:
                     if (
                         config.completion_mode.is_duration_based
                         and (progress := data.template_progress.get(slot)) is not None
@@ -294,6 +298,7 @@ class HabitTracker(hass.Hass):
             config.name = new_name
             if old_name.strip() and not new_name:
                 data.completions.pop(slot, None)
+                data.not_required_days.pop(slot, None)
                 self._clear_pending(user, slot)
         elif key == "type":
             config.habit_type = HabitType(payload)
@@ -323,6 +328,11 @@ class HabitTracker(hass.Hass):
             if len(template) > MAX_TEMPLATE_LENGTH:
                 raise ValueError("completion template is too long")
             config.completion_template = template
+        elif key == "requirement_template":
+            template = payload.strip()
+            if len(template) > MAX_TEMPLATE_LENGTH:
+                raise ValueError("requirement template is too long")
+            config.requirement_template = template
         elif key == "completion_duration":
             config.completion_duration_minutes = _bounded_int(
                 payload,
@@ -346,6 +356,8 @@ class HabitTracker(hass.Hass):
         counts_changed = config.name != old_name or config.habit_type is not old_type
         if counts_changed:
             self._clear_pending(user, slot)
+        if key in {"name", "requirement_template"} and config.configured:
+            self._evaluate_requirement(user, slot)
         if (
             config.reminder_time != old_reminder_time
             and config.configured
@@ -359,6 +371,7 @@ class HabitTracker(hass.Hass):
             "completion_duration",
             "completion_mode",
             "completion_template",
+            "requirement_template",
             "name",
         }:
             self._rebuild_template_listeners(user, slot)
@@ -458,7 +471,7 @@ class HabitTracker(hass.Hass):
         config = data.habits[slot]
         if count:
             self._clear_pending(user, slot)
-        elif config.configured:
+        elif config.configured and self._is_required_today(user, slot):
             self._seed_next_reminder(user, config, force=True)
         if config.completion_mode.is_event_driven:
             self.templates.cancel_duration(user, slot)
@@ -489,6 +502,7 @@ class HabitTracker(hass.Hass):
             data.completions.get(slot, {}),
             today=today,
             min_days_per_week=config.streak_min_days_per_week,
+            not_required_days=data.not_required_days.get(slot),
         )
         self.mqtt.publish(
             f"{prefix}/streak/state",
@@ -500,6 +514,21 @@ class HabitTracker(hass.Hass):
                 **self._slot_attributes(config),
                 "days_since_completion": stats.days_since_completion,
                 "completion_rate_28_days": stats.completion_rate_28_days,
+                "compliance_rate_28_days": stats.compliance_rate_28_days,
+                "not_required_days_28": stats.not_required_days_28,
+            },
+        )
+        self.mqtt.publish(
+            f"{prefix}/status/state",
+            self._habit_status(user, slot),
+        )
+        self.mqtt.publish(
+            f"{prefix}/status/attributes",
+            {
+                **self._slot_attributes(config),
+                "required": self._is_required_today(user, slot),
+                "requirement_template": config.requirement_template,
+                "requirement_error": self._requirement_errors.get((user, slot)),
             },
         )
         state_key = "state" if config.habit_type is HabitType.BINARY else "count"
@@ -595,13 +624,18 @@ class HabitTracker(hass.Hass):
         changed = False
         for slot, config in list(data.habits.items()):
             pending = data.pending_reminders.get(slot)
-            if not config.configured or self._is_complete_today(user, slot):
+            self._evaluate_requirement(user, slot, manage_reminders=False)
+            if (
+                not config.configured
+                or self._is_complete_today(user, slot)
+                or not self._is_required_today(user, slot)
+            ):
                 if pending is not None:
                     self._clear_pending(user, slot)
                     changed = True
                 continue
             if pending is None:
-                self._seed_next_reminder(user, config)
+                self._seed_next_reminder(user, config, requirement_checked=True)
                 changed = True
                 continue
             self._arm_pending(user, slot, pending)
@@ -625,10 +659,16 @@ class HabitTracker(hass.Hass):
         config: HabitConfig,
         *,
         force: bool = False,
+        requirement_checked: bool = False,
     ) -> None:
         if not self.reminders_enabled or not config.configured:
             return
-        if self._is_complete_today(user, config.slot):
+        if not requirement_checked:
+            self._evaluate_requirement(user, config.slot, manage_reminders=False)
+        if self._is_complete_today(user, config.slot) or not self._is_required_today(
+            user,
+            config.slot,
+        ):
             self._clear_pending(user, config.slot)
             return
         data = self.store.data.users[user]
@@ -688,6 +728,9 @@ class HabitTracker(hass.Hass):
             return
         if not config.configured:
             raise ValueError("habit is not configured")
+        self._evaluate_requirement(user, slot)
+        if not self._is_required_today(user, slot):
+            raise ValueError("habit is not due today")
         fire_at = self._parse_fire_at(payload)
         pending = data.pending_reminders.get(slot)
         if (
@@ -822,30 +865,40 @@ class HabitTracker(hass.Hass):
         )
 
     def _rebuild_template_listeners(self, user: str, slot: int) -> None:
-        """Re-subscribe a slot to the entities its template actually references."""
+        """Subscribe a slot to its requirement and completion dependencies."""
         self.templates.cancel_duration(user, slot)
         config = self.store.data.users[user].habits.get(slot)
-        if (
-            config is None
-            or not config.configured
-            or not config.completion_mode.is_event_driven
-        ):
+        if config is None or not config.configured:
             self.templates.remove(user, slot)
             self._watched_entities.pop((user, slot), None)
             self._template_errors.pop((user, slot), None)
+            self._requirement_errors.pop((user, slot), None)
             return
-        candidates = extract_candidate_entities(config.completion_template)
-        # The pattern cannot distinguish an entity from an attribute access, so
-        # keep only candidates Home Assistant actually knows about.
-        entities = [name for name in candidates if self.get_state(name) is not None]
-        if not entities:
-            self.error(
-                "Habit template for %s slot %s references no known entities, so it "
-                "will never re-evaluate: %r",
-                user,
-                slot,
-                config.completion_template,
-            )
+        templates: list[tuple[str, str]] = []
+        if config.requirement_template.strip():
+            templates.append(("requirement", config.requirement_template))
+        if config.completion_mode.is_event_driven:
+            templates.append(("completion", config.completion_template))
+        if not templates:
+            self.templates.remove(user, slot)
+            self._watched_entities.pop((user, slot), None)
+            self._template_errors.pop((user, slot), None)
+            self._requirement_errors.pop((user, slot), None)
+            return
+        entities: list[str] = []
+        for kind, template in templates:
+            candidates = extract_candidate_entities(template)
+            known = [name for name in candidates if self.get_state(name) is not None]
+            entities.extend(known)
+            if not known:
+                self.error(
+                    "Habit %s template for %s slot %s references no known entities, "
+                    "so it will only re-evaluate at startup and midnight: %r",
+                    kind,
+                    user,
+                    slot,
+                    template,
+                )
         if config.completion_mode.is_duration_based:
             entities.append(TIME_TICK_ENTITY)
         self._watched_entities[(user, slot)] = self.templates.watch(
@@ -917,13 +970,108 @@ class HabitTracker(hass.Hass):
         self._template_errors[key] = None
         return truthy
 
-    def _evaluate_template(self, user: str, slot: int) -> None:
-        """Evaluate one slot's completion template and act on the result."""
-        if not self.template_evaluation_enabled:
-            return
+    def _render_requirement(self, user: str, slot: int, template: str) -> bool:
+        """Render a requirement, failing safe to required on any error."""
+        key = (user, slot)
+        try:
+            rendered = self.render_template(template)
+        except Exception as error:
+            self.error(
+                "Habit requirement failed for %s slot %s; treating it as required: %s",
+                user,
+                slot,
+                error,
+            )
+            self._requirement_errors[key] = str(error)
+            return True
+        truthy = (
+            None
+            if rendered is None
+            or (
+                isinstance(rendered, str)
+                and rendered.strip().lower() in {"unknown", "unavailable"}
+            )
+            else coerce_truthy(rendered)
+        )
+        if truthy is None:
+            self.error(
+                "Habit requirement for %s slot %s returned an unusable value; "
+                "treating it as required: %r",
+                user,
+                slot,
+                rendered,
+            )
+            self._requirement_errors[key] = f"unusable template result: {rendered!r}"
+            return True
+        self._requirement_errors[key] = None
+        return truthy
+
+    def _evaluate_requirement(
+        self,
+        user: str,
+        slot: int,
+        *,
+        manage_reminders: bool = True,
+    ) -> bool:
+        """Persist today's applicability and reconcile its dependent work."""
         data = self.store.data.users[user]
         config = data.habits.get(slot)
         if config is None or not config.configured:
+            return True
+        template = config.requirement_template.strip()
+        if template:
+            required = self._render_requirement(user, slot, template)
+        else:
+            required = True
+            self._requirement_errors[(user, slot)] = None
+        today = self.datetime().date().isoformat()
+        skipped = data.not_required_days.setdefault(slot, set())
+        was_required = today not in skipped
+        progress_changed = False
+        if required:
+            skipped.discard(today)
+            if not skipped:
+                data.not_required_days.pop(slot, None)
+            if (
+                manage_reminders
+                and not was_required
+                and not self._is_complete_today(
+                    user,
+                    slot,
+                )
+            ):
+                self._seed_next_reminder(
+                    user,
+                    config,
+                    force=True,
+                    requirement_checked=True,
+                )
+        else:
+            skipped.add(today)
+            self._clear_pending(user, slot)
+            self.templates.cancel_duration(user, slot)
+            progress = data.template_progress.get(slot)
+            if progress is not None and progress.day == today:
+                progress_changed = bool(
+                    progress.accumulated_seconds or progress.truthy_since,
+                )
+                progress.accumulated_seconds = 0
+                progress.truthy_since = None
+        if required != was_required or progress_changed:
+            self.store.save()
+            self._publish_habit_state(user, slot)
+            self._publish_next_reminder(user, slot)
+        return required
+
+    def _evaluate_template(self, user: str, slot: int) -> None:  # noqa: C901, PLR0911
+        """Evaluate one slot's completion template and act on the result."""
+        data = self.store.data.users[user]
+        config = data.habits.get(slot)
+        if config is None or not config.configured:
+            return
+        if not self._evaluate_requirement(user, slot):
+            return
+        if not self.template_evaluation_enabled:
             return
         if not config.completion_mode.is_event_driven:
             if data.template_progress.pop(slot, None) is not None:
@@ -1059,6 +1207,8 @@ class HabitTracker(hass.Hass):
             "completion_mode": config.completion_mode,
             "condition": progress.is_truthy if progress is not None else False,
             "template_error": self._template_errors.get((user, slot)),
+            "required": self._is_required_today(user, slot),
+            "requirement_error": self._requirement_errors.get((user, slot)),
             "watched_entities": list(self._watched_entities.get((user, slot), ())),
         }
         if config.completion_mode.is_duration_based:
@@ -1082,6 +1232,15 @@ class HabitTracker(hass.Hass):
             .get(self.datetime().date().isoformat(), 0)
             > 0
         )
+
+    def _is_required_today(self, user: str, slot: int) -> bool:
+        today = self.datetime().date().isoformat()
+        return today not in self.store.data.users[user].not_required_days.get(slot, set())
+
+    def _habit_status(self, user: str, slot: int) -> str:
+        if self._is_complete_today(user, slot):
+            return "complete"
+        return "due" if self._is_required_today(user, slot) else "not_due"
 
     def _parse_fire_at(self, value: str) -> datetime:
         fire_at = datetime.fromisoformat(value)
@@ -1148,6 +1307,10 @@ class HabitTracker(hass.Hass):
             self._clear_pending(user, slot)
             self.store.save()
             return
+        if not self._evaluate_requirement(user, slot):
+            self._clear_pending(user, slot)
+            self.store.save()
+            return
         if self._is_complete_today(user, slot):
             self._clear_pending(user, slot)
             self.store.save()
@@ -1202,6 +1365,7 @@ class HabitTracker(hass.Hass):
             self.store.data.users[user].completions.get(slot, {}),
             today=self._aware_now().date(),
             min_days_per_week=config.streak_min_days_per_week,
+            not_required_days=self.store.data.users[user].not_required_days.get(slot),
         ).streak
         title = f"{config.name} · {streak}-day streak"
         user_config = self._user_config(user)
@@ -1355,13 +1519,18 @@ class HabitTracker(hass.Hass):
             data.completions.get(config.slot, {}),
             today=now.date(),
             min_days_per_week=config.streak_min_days_per_week,
+            not_required_days=data.not_required_days.get(config.slot),
         )
         pairs: list[tuple[str, object]] = [
             ("Habit name", config.name),
             ("Habit type", config.habit_type),
+            ("Habit status", self._habit_status(user, config.slot)),
+            ("Required today", self._is_required_today(user, config.slot)),
             ("Current streak days", stats.streak),
             ("Days since completion", stats.days_since_completion),
             ("28-day completion rate", stats.completion_rate_28_days),
+            ("28-day compliance rate", stats.compliance_rate_28_days),
+            ("Not-required days in 28 days", stats.not_required_days_28),
             ("Mood today", data.mood_today),
             ("Mood note", data.mood_note),
             ("Location category", self._location_category(user_config)),
@@ -1567,9 +1736,16 @@ class HabitTracker(hass.Hass):
         for slot in list(data.habits):
             self._clear_pending(user, slot)
         self._clear_mood_pending(user)
-        for config in data.habits.values():
+        for slot, config in data.habits.items():
             if config.configured:
-                self._seed_next_reminder(user, config, force=True)
+                self._rebuild_template_listeners(user, slot)
+                self._evaluate_requirement(user, slot, manage_reminders=False)
+                self._seed_next_reminder(
+                    user,
+                    config,
+                    force=True,
+                    requirement_checked=True,
+                )
         self._seed_mood_reminder(user, force=True)
         # Progress records are keyed by day, so a stale one is replaced on the
         # next evaluation rather than cleared here.
@@ -1597,6 +1773,7 @@ class HabitTracker(hass.Hass):
                 self.templates.remove(user, slot)
             self._watched_entities.pop((user, slot), None)
             self._template_errors.pop((user, slot), None)
+            self._requirement_errors.pop((user, slot), None)
             self._published_template_attributes.pop((user, slot), None)
         return added_spare, retired
 

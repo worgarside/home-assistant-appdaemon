@@ -169,6 +169,12 @@ class HabitMqtt:
                 {"max": MAX_TEMPLATE_LENGTH, "icon": "mdi:code-braces"},
             ),
             EntitySpec(
+                "text",
+                "requirement_template",
+                f"{display} requirement template",
+                {"max": MAX_TEMPLATE_LENGTH, "icon": "mdi:code-braces"},
+            ),
+            EntitySpec(
                 "number",
                 "completion_duration",
                 f"{display} completion duration",
@@ -189,6 +195,13 @@ class HabitMqtt:
                 "streak",
                 f"{display} streak",
                 {"unit_of_measurement": "days", "icon": "mdi:fire"},
+                configurable=False,
+            ),
+            EntitySpec(
+                "sensor",
+                "status",
+                f"{display} status",
+                {"icon": "mdi:list-status"},
                 configurable=False,
             ),
         )
@@ -213,7 +226,7 @@ class HabitMqtt:
                 payload.update({"payload_on": "ON", "payload_off": "OFF"})
             if spec.configurable:
                 payload["entity_category"] = "config"
-            if spec.key in {"name", "state", "count", "streak"}:
+            if spec.key in {"name", "state", "count", "streak", "status"}:
                 payload["json_attributes_topic"] = f"{state_prefix}/{spec.key}/attributes"
             self.publish(self._config_topic(spec.component, object_id), payload)
         self.publish_config_state(user, config)
@@ -236,6 +249,7 @@ class HabitMqtt:
             "completion_mode": config.completion_mode,
             "completion_template": config.completion_template,
             "completion_duration": config.completion_duration_minutes,
+            "requirement_template": config.requirement_template,
         }
         for key, value in values.items():
             self.publish(f"{prefix}/{key}/state", str(value))
@@ -431,6 +445,8 @@ def _slot_entity_keys() -> tuple[tuple[str, str], ...]:
         ("text", "icon_zero"),
         ("select", "completion_mode"),
         ("text", "completion_template"),
+        ("text", "requirement_template"),
         ("number", "completion_duration"),
         ("sensor", "streak"),
+        ("sensor", "status"),
     )
