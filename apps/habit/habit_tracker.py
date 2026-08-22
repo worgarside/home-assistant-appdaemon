@@ -27,7 +27,11 @@ from .models import (
     normalize_spare_slot,
 )
 from .mqtt import HabitMqtt, MqttSettings
-from .reminders import ReminderManager, repeat_fits_before_midnight
+from .reminders import (
+    ReminderManager,
+    end_of_day_reminder_fire_at,
+    repeat_fits_before_midnight,
+)
 from .store import HabitStore
 from .templates import TemplateWatcher, coerce_truthy, extract_candidate_entities
 
@@ -311,6 +315,8 @@ class HabitTracker(hass.Hass):
             config.streak_min_days_per_week = _bounded_int(payload, 1, 7)
         elif key == "ai":
             config.ai_enabled = _mqtt_bool(payload)
+        elif key == "end_of_day_reminder":
+            config.end_of_day_reminder_enabled = _mqtt_bool(payload)
         elif key in {"icon_on", "icon_active", "icon_off", "icon_zero"}:
             icon = payload.strip()
             if len(icon) > MAX_NAME_LENGTH:
@@ -363,6 +369,9 @@ class HabitTracker(hass.Hass):
         }:
             self._rebuild_template_listeners(user, slot)
             self._schedule_evaluation(user, slot)
+        # Name changes can configure or delete a slot, so reconcile the derived
+        # timer after every configuration edit rather than only after toggles.
+        self._schedule_end_of_day_reminder(user, config)
         added_spare, retired = self._normalize_user_slots(user)
         config = data.habits.get(slot)
         self.store.save()
@@ -458,8 +467,10 @@ class HabitTracker(hass.Hass):
         config = data.habits[slot]
         if count:
             self._clear_pending(user, slot)
+            self.reminders.cancel_end_of_day(user, slot)
         elif config.configured:
             self._seed_next_reminder(user, config, force=True)
+            self._schedule_end_of_day_reminder(user, config)
         if config.completion_mode.is_event_driven:
             self.templates.cancel_duration(user, slot)
             progress = self._template_progress(user, slot, day)
@@ -596,16 +607,49 @@ class HabitTracker(hass.Hass):
         for slot, config in list(data.habits.items()):
             pending = data.pending_reminders.get(slot)
             if not config.configured or self._is_complete_today(user, slot):
+                self.reminders.cancel_end_of_day(user, slot)
                 if pending is not None:
                     self._clear_pending(user, slot)
                     changed = True
                 continue
+            self._schedule_end_of_day_reminder(user, config)
             if pending is None:
                 self._seed_next_reminder(user, config)
                 changed = True
                 continue
             self._arm_pending(user, slot, pending)
         return changed
+
+    def _schedule_end_of_day_reminder(
+        self,
+        user: str,
+        config: HabitConfig,
+    ) -> None:
+        """Arm today's opt-in 23:55 reminder independently of the repeat chain."""
+        if (
+            not self.reminders_enabled
+            or not config.configured
+            or not config.end_of_day_reminder_enabled
+            or self._is_complete_today(user, config.slot)
+        ):
+            self.reminders.cancel_end_of_day(user, config.slot)
+            return
+        now = self._aware_now()
+        fire_at = end_of_day_reminder_fire_at(
+            now,
+            last_sent_day=self.store.data.users[user].end_of_day_reminder_sent_days.get(
+                config.slot,
+            ),
+        )
+        if fire_at is None:
+            self.reminders.cancel_end_of_day(user, config.slot)
+            return
+        self.reminders.schedule_end_of_day(
+            user,
+            config.slot,
+            fire_at=fire_at,
+            now=now,
+        )
 
     def _restore_mood_reminder(self, user: str, data: UserData) -> bool:
         if not data.mood_reminders_enabled or data.mood_today != "Not Set":
@@ -1119,6 +1163,10 @@ class HabitTracker(hass.Hass):
             )
             return
         slot = int(kwargs["slot"])
+        if kwargs.get("kind") == "end_of_day":
+            self.reminders.release_end_of_day(user, slot)
+            self._send_end_of_day_reminder(user, slot)
+            return
         self.reminders.release(user, slot)
         self._send_reminder(
             user,
@@ -1184,6 +1232,32 @@ class HabitTracker(hass.Hass):
             slot,
             reminder_index,
         )
+        self._notify_habit(user, slot, config, message)
+
+    def _send_end_of_day_reminder(self, user: str, slot: int) -> None:
+        """Send the opt-in final check without changing the regular reminder chain."""
+        if not self.reminders_enabled:
+            return
+        data = self.store.data.users[user]
+        config = data.habits.get(slot)
+        today = self._aware_now().date().isoformat()
+        if (
+            config is None
+            or not config.configured
+            or not config.end_of_day_reminder_enabled
+            or self._is_complete_today(user, slot)
+            or data.end_of_day_reminder_sent_days.get(slot) == today
+        ):
+            return
+        # Persist before notifying so a restart or configuration edit cannot
+        # re-arm another final check after this one has fired.
+        data.end_of_day_reminder_sent_days[slot] = today
+        self.store.save()
+        message = (
+            f"If you've already done {config.name}, mark it complete before midnight "
+            "to keep your streak."
+        )
+        self.log("Sending end-of-day habit reminder for %s slot %s", user, slot)
         self._notify_habit(user, slot, config, message)
 
     def _notify_habit(
@@ -1566,10 +1640,13 @@ class HabitTracker(hass.Hass):
         data.mood_note = ""
         for slot in list(data.habits):
             self._clear_pending(user, slot)
+            self.reminders.cancel_end_of_day(user, slot)
+        data.end_of_day_reminder_sent_days.clear()
         self._clear_mood_pending(user)
         for config in data.habits.values():
             if config.configured:
                 self._seed_next_reminder(user, config, force=True)
+                self._schedule_end_of_day_reminder(user, config)
         self._seed_mood_reminder(user, force=True)
         # Progress records are keyed by day, so a stale one is replaced on the
         # next evaluation rather than cleared here.
