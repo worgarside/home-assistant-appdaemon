@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 from typing import Any
 from unittest import TestCase
 
-from apps.habit.models import SCHEMA_VERSION, HabitConfig, StoreData
-from apps.habit.reminders import ReminderManager
+from apps.habit.models import SCHEMA_VERSION, HabitConfig, StoreData, UserData
+from apps.habit.reminders import ReminderManager, end_of_day_reminder_fire_at
 
 
 class FakeScheduler:
@@ -68,6 +68,36 @@ class EndOfDayReminderTests(TestCase):
         restored = HabitConfig.from_dict(config.to_dict())
 
         self.assertTrue(restored.end_of_day_reminder_enabled)
+
+    def test_sent_day_round_trips(self) -> None:
+        """The at-most-once marker must survive an AppDaemon restart."""
+        data = UserData(end_of_day_reminder_sent_days={1: "2026-08-22"})
+
+        restored = UserData.from_dict(data.to_dict())
+
+        self.assertEqual(
+            restored.end_of_day_reminder_sent_days,
+            {1: "2026-08-22"},
+        )
+
+    def test_end_of_day_reminder_does_not_rearm_after_firing(self) -> None:
+        """Restoring or editing a habit after 23:55 must not duplicate it."""
+        now = datetime(2026, 8, 22, 23, 57, tzinfo=UTC)
+
+        fire_at = end_of_day_reminder_fire_at(
+            now,
+            last_sent_day="2026-08-22",
+        )
+
+        self.assertIsNone(fire_at)
+
+    def test_late_start_arms_unsent_end_of_day_reminder_immediately(self) -> None:
+        """An unsent final check should still fire after the nominal time."""
+        now = datetime(2026, 8, 22, 23, 57, tzinfo=UTC)
+
+        fire_at = end_of_day_reminder_fire_at(now, last_sent_day=None)
+
+        self.assertEqual(fire_at, now)
 
     def test_end_of_day_timer_is_independent_from_regular_timer(self) -> None:
         """Cancelling the final check must not alter the repeat chain."""

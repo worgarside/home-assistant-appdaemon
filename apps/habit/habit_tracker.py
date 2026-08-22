@@ -27,7 +27,11 @@ from .models import (
     normalize_spare_slot,
 )
 from .mqtt import HabitMqtt, MqttSettings
-from .reminders import ReminderManager, repeat_fits_before_midnight
+from .reminders import (
+    ReminderManager,
+    end_of_day_reminder_fire_at,
+    repeat_fits_before_midnight,
+)
 from .store import HabitStore
 from .templates import TemplateWatcher, coerce_truthy, extract_candidate_entities
 
@@ -88,7 +92,6 @@ MAX_NETWORK_PORT: Final[int] = 65535
 # even if one of its dependencies changes without emitting an event.
 TIME_TICK_ENTITY: Final[str] = "sensor.time"
 MAX_DEBOUNCE_SECONDS: Final[float] = 60
-END_OF_DAY_REMINDER_TIME: Final[time] = time(23, 55)
 
 
 class HabitTracker(hass.Hass):
@@ -632,15 +635,19 @@ class HabitTracker(hass.Hass):
             self.reminders.cancel_end_of_day(user, config.slot)
             return
         now = self._aware_now()
-        fire_at = datetime.combine(
-            now.date(),
-            END_OF_DAY_REMINDER_TIME,
-            tzinfo=now.tzinfo,
+        fire_at = end_of_day_reminder_fire_at(
+            now,
+            last_sent_day=self.store.data.users[user].end_of_day_reminder_sent_days.get(
+                config.slot,
+            ),
         )
+        if fire_at is None:
+            self.reminders.cancel_end_of_day(user, config.slot)
+            return
         self.reminders.schedule_end_of_day(
             user,
             config.slot,
-            fire_at=max(fire_at, now),
+            fire_at=fire_at,
             now=now,
         )
 
@@ -1231,14 +1238,21 @@ class HabitTracker(hass.Hass):
         """Send the opt-in final check without changing the regular reminder chain."""
         if not self.reminders_enabled:
             return
-        config = self.store.data.users[user].habits.get(slot)
+        data = self.store.data.users[user]
+        config = data.habits.get(slot)
+        today = self._aware_now().date().isoformat()
         if (
             config is None
             or not config.configured
             or not config.end_of_day_reminder_enabled
             or self._is_complete_today(user, slot)
+            or data.end_of_day_reminder_sent_days.get(slot) == today
         ):
             return
+        # Persist before notifying so a restart or configuration edit cannot
+        # re-arm another final check after this one has fired.
+        data.end_of_day_reminder_sent_days[slot] = today
+        self.store.save()
         message = (
             f"If you've already done {config.name}, mark it complete before midnight "
             "to keep your streak."
@@ -1627,6 +1641,7 @@ class HabitTracker(hass.Hass):
         for slot in list(data.habits):
             self._clear_pending(user, slot)
             self.reminders.cancel_end_of_day(user, slot)
+        data.end_of_day_reminder_sent_days.clear()
         self._clear_mood_pending(user)
         for config in data.habits.values():
             if config.configured:

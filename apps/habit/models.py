@@ -260,6 +260,7 @@ class UserData:
     habits: dict[int, HabitConfig] = field(default_factory=dict)
     completions: dict[int, dict[str, int]] = field(default_factory=dict)
     pending_reminders: dict[int, PendingReminder] = field(default_factory=dict)
+    end_of_day_reminder_sent_days: dict[int, str] = field(default_factory=dict)
     template_progress: dict[int, TemplateProgress] = field(default_factory=dict)
     mood_history: dict[str, str] = field(default_factory=dict)
     mood_today: str = "Not Set"
@@ -295,6 +296,9 @@ class UserData:
             "pending_reminders": {
                 str(slot): pending.to_dict()
                 for slot, pending in self.pending_reminders.items()
+            },
+            "end_of_day_reminder_sent_days": {
+                str(slot): day for slot, day in self.end_of_day_reminder_sent_days.items()
             },
             "template_progress": {
                 str(slot): progress.to_dict()
@@ -333,6 +337,13 @@ class UserData:
             int(slot): PendingReminder.from_dict(_dict(item))
             for slot, item in _mapping(value, "pending_reminders").items()
         }
+        end_of_day_reminder_sent_days = {
+            int(slot): _date_string(day)
+            for slot, day in _mapping(
+                value,
+                "end_of_day_reminder_sent_days",
+            ).items()
+        }
         template_progress = {
             int(slot): TemplateProgress.from_dict(_dict(item))
             for slot, item in _mapping(value, "template_progress").items()
@@ -351,6 +362,7 @@ class UserData:
             habits=habits,
             completions=completions,
             pending_reminders=pending_reminders,
+            end_of_day_reminder_sent_days=end_of_day_reminder_sent_days,
             template_progress=template_progress,
             mood_history=mood_history,
             mood_today=_mood(value.get("mood_today", "Not Set")),
@@ -523,6 +535,7 @@ def normalize_spare_slot(data: UserData) -> tuple[int | None, tuple[int, ...]]:
         data.habits[spare_slot] = HabitConfig(slot=spare_slot)
         data.completions.pop(spare_slot, None)
         data.pending_reminders.pop(spare_slot, None)
+        data.end_of_day_reminder_sent_days.pop(spare_slot, None)
         data.template_progress.pop(spare_slot, None)
     else:
         spare_slot = 1
@@ -535,6 +548,7 @@ def normalize_spare_slot(data: UserData) -> tuple[int | None, tuple[int, ...]]:
         del data.habits[slot]
         data.completions.pop(slot, None)
         data.pending_reminders.pop(slot, None)
+        data.end_of_day_reminder_sent_days.pop(slot, None)
         data.template_progress.pop(slot, None)
     return added_spare, retired
 

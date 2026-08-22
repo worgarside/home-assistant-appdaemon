@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
+
+END_OF_DAY_REMINDER_TIME: Final[time] = time(23, 55)
 
 
 class Scheduler(Protocol):
@@ -169,3 +171,19 @@ def repeat_fits_before_midnight(now: datetime, interval_minutes: int) -> bool:
     )
     cutoff = next_midnight - timedelta(minutes=interval_minutes + 5)
     return now < cutoff
+
+
+def end_of_day_reminder_fire_at(
+    now: datetime,
+    *,
+    last_sent_day: str | None,
+) -> datetime | None:
+    """Return today's fire time, unless the final check already fired today."""
+    if last_sent_day == now.date().isoformat():
+        return None
+    fire_at = datetime.combine(
+        now.date(),
+        END_OF_DAY_REMINDER_TIME,
+        tzinfo=now.tzinfo,
+    )
+    return max(fire_at, now)
