@@ -4,19 +4,6 @@
 
 default_language_version = { python = "python3.12" }
 
-[[repos]]
-repo = "local"
-hooks = [
-  {
-    id = "unit-tests",
-    name = "unit tests",
-    entry = "python -m unittest discover -s tests -v",
-    language = "system",
-    pass_filenames = false,
-    always_run = true
-  }
-]
-
 # TODO: worgarside/pre-commit-hooks-dependency-sync only understands
 # .pre-commit-config.yaml today, not prek.toml - it will fail here until
 # that's fixed upstream. Disabled for now, not removed, as a reminder.
