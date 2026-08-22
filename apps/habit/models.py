@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Final, Self
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-SCHEMA_VERSION: Final[int] = 2
+SCHEMA_VERSION: Final[int] = 3
 MIN_SCHEMA_VERSION: Final[int] = 1
 MAX_NAME_LENGTH: Final[int] = 255
 MAX_TEMPLATE_LENGTH: Final[int] = 255
@@ -83,6 +83,7 @@ class HabitConfig:
     repeat_interval_minutes: int = 60
     streak_min_days_per_week: int = 7
     ai_enabled: bool = False
+    end_of_day_reminder_enabled: bool = False
     icon_on: str = "mdi:check-circle"
     icon_active: str = "mdi:counter"
     icon_off: str = "mdi:circle-outline"
@@ -156,6 +157,11 @@ class HabitConfig:
                 7,
             ),
             ai_enabled=_boolean(value, "ai_enabled", default=False),
+            end_of_day_reminder_enabled=_boolean(
+                value,
+                "end_of_day_reminder_enabled",
+                default=False,
+            ),
             icon_on=_string(value, "icon_on", "mdi:check-circle"),
             icon_active=_string(value, "icon_active", "mdi:counter"),
             icon_off=_string(value, "icon_off", "mdi:circle-outline"),
@@ -374,11 +380,21 @@ def _migrate_1_to_2(value: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
+def _migrate_2_to_3(value: dict[str, Any]) -> dict[str, Any]:
+    """Add the opt-in end-of-day habit reminder setting.
+
+    ``HabitConfig.from_dict`` supplies the disabled default, so the migration is
+    intentionally additive and does not rewrite individual habit records.
+    """
+    return value
+
+
 # Upgrade steps keyed by source version; entry N migrates a payload from
 # version N to version N+1. Register a step in the same change that bumps
 # SCHEMA_VERSION.
 SCHEMA_MIGRATIONS: Final[dict[int, Callable[[dict[str, Any]], dict[str, Any]]]] = {
     1: _migrate_1_to_2,
+    2: _migrate_2_to_3,
 }
 
 

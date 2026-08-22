@@ -157,6 +157,12 @@ class HabitMqtt:
             ),
             EntitySpec("switch", "ai", f"{display} AI reminders", {}),
             EntitySpec(
+                "switch",
+                "end_of_day_reminder",
+                f"{display} end-of-day reminder",
+                {"icon": "mdi:weather-sunset-down"},
+            ),
+            EntitySpec(
                 "select",
                 "completion_mode",
                 f"{display} completion mode",
@@ -229,6 +235,9 @@ class HabitMqtt:
             "repeat_interval": config.repeat_interval_minutes,
             "streak_min_days": config.streak_min_days_per_week,
             "ai": "ON" if config.ai_enabled else "OFF",
+            "end_of_day_reminder": (
+                "ON" if config.end_of_day_reminder_enabled else "OFF"
+            ),
             "icon_on": config.icon_on,
             "icon_active": config.icon_active,
             "icon_off": config.icon_off,
@@ -425,6 +434,7 @@ def _slot_entity_keys() -> tuple[tuple[str, str], ...]:
         ("number", "repeat_interval"),
         ("number", "streak_min_days"),
         ("switch", "ai"),
+        ("switch", "end_of_day_reminder"),
         ("text", "icon_on"),
         ("text", "icon_active"),
         ("text", "icon_off"),
