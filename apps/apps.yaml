@@ -26,14 +26,15 @@ cursor_usage_monitor:
   module: usage_monitor
   class: CursorUsageMonitor
   poll_interval_seconds: 300
+  account_store_path: /data/cursor/accounts
+  legacy_account_email: !secret primary_gmail_address
+  publish_legacy_derived_sensors: false
 
   mqtt_host: !secret appdaemon_mqtt_host
   mqtt_port: 1883
   mqtt_username: !secret appdaemon_mqtt_username
   mqtt_password: !secret appdaemon_mqtt_password
   mqtt_discovery_prefix: homeassistant
-  mqtt_device_id: appdaemon_cursor_usage
-  mqtt_device_name: Cursor
   mqtt_base_topic: appdaemon/cursor_usage
 
 # qBittorrent Storage Cleanup
