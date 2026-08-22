@@ -35,6 +35,7 @@ Each slot exposes:
 - Repeat count and interval controls.
 - A minimum-days-per-week streak control.
 - An AI-reminder switch.
+- An opt-in end-of-day reminder switch.
 - Configurable icons for complete, incomplete, active, and zero states.
 - A streak sensor with completion age and 28-day completion rate attributes.
 
@@ -125,6 +126,13 @@ new day when reminders are enabled.
 
 Notifications are sent through the user's configured `script.notify_*` script. Their
 action button either marks a binary habit complete or increments a countable habit.
+
+Each habit can also opt in to an independent end-of-day reminder with
+`switch.<user>_habit_<slot>_end_of_day_reminder`. At 23:55 local time, the app sends
+one final notification when that habit is still incomplete. This timer is derived
+from the fixed daily time rather than stored in `pending_reminders`, and it neither
+consumes nor changes the scheduled/repeating reminder chain. Enabling it after 23:55
+sends the check immediately if the habit is still incomplete.
 
 At local midnight, current values reset while historical completions remain available
 for streak calculations. Mood and mood notes reset at the same time. Pending reminder
